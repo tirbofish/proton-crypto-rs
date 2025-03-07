@@ -1,0 +1,3 @@
+ignore:
+  # We are not using SSH from golang.org/x/crypto
+  - vulnerability: GHSA-v778-237x-gjrc
