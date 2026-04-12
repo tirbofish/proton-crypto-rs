@@ -18,7 +18,9 @@ pub enum KeyError {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum AddressKeySelectionError {
+pub enum KeySelectionError {
+    #[error("No valid primary user key found")]
+    NoPrimaryUserKey,
     #[error("No valid primary address key found")]
     NoPrimaryAddressKey,
     #[error("Cannot transform address key to primary address key: {0}")]
@@ -43,6 +45,8 @@ pub enum AccountCryptoError {
     TokenDecryption(CryptoError),
     #[error("Failed to import key {0}")]
     KeyImport(CryptoError),
+    #[error("Failed to export key {0}")]
+    KeyExport(CryptoError),
     #[error("Failed to export public key from private key {0}")]
     TransformPublic(CryptoError),
     #[error("Failed to generate a fresh key {0}")]
@@ -123,6 +127,28 @@ pub enum EncryptionPreferencesError {
     ExternalUserNoValidApiKey,
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum RecoverySecretError {
+    #[error("Failed to encode signature as UTF-8")]
+    SignatureEncoding,
+    #[error("Failed to sign recovery secret: {0}")]
+    SignatureCreation(CryptoError),
+    #[error("Failed to encrypt recovery data: {0}")]
+    Encrypt(CryptoError),
+    #[error("Failed to decrypt recovery data: {0}")]
+    Decrypt(CryptoError),
+    #[error("Failed to verify recovery secret signature: {0}")]
+    VerifySignature(VerificationError),
+    #[error("Failed to export private key: {0}")]
+    ExportKey(AccountCryptoError),
+    #[error("Failed to import private key: {0}")]
+    ImportKey(AccountCryptoError),
+    #[error("No primary user key")]
+    NoPrimary,
+    #[error("No matching secret found to decrypt recovery data")]
+    NoMatchingSecret,
+}
+
 // Ensure all error types to be Send and 'static.
 assert_send_static!(
     CardCryptoError,
@@ -131,5 +157,6 @@ assert_send_static!(
     AccountCryptoError,
     KeyError,
     KeySerializationError,
-    AddressKeySelectionError,
+    KeySelectionError,
+    RecoverySecretError,
 );
