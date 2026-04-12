@@ -134,14 +134,27 @@ fn build_go_lib(
     command
         .current_dir("go")
         .env("CGO_ENABLED", "1");
-
-    // if the current environment is docs.rs (which doesnt allow root), change gocache. 
+    
     if std::env::var("DOCS_RS").is_ok() {
-        command.env("GOCACHE", lib_dir);
+        let tmp_dir = lib_dir.join("gotmp");
+        let mod_dir = lib_dir.join("gomod");
+        std::fs::create_dir_all(&tmp_dir).expect("Failed to create GOTMPDIR");
+        std::fs::create_dir_all(&mod_dir).expect("Failed to create GOMODCACHE");
+
+        command
+            .env("GOCACHE", lib_dir)
+            .env("GOPATH", lib_dir)
+            .env("GOMODCACHE", &mod_dir)
+            .env("GOTMPDIR", &tmp_dir)
+            .env("GOENV", "off");
     }
-        
+
     command.arg("build")
         .arg("-trimpath");
+
+    if std::env::var("DOCS_RS").is_ok() { // network disabled
+        command.arg("-mod=vendor");
+    }
 
     let binding_env = match platform {
         Platform::Unix(arch) => prepare_go_lib_build_unix(&mut command, arch),
@@ -149,11 +162,13 @@ fn build_go_lib(
         Platform::Android(arch) => prepare_go_lib_build_android(&mut command, arch),
         Platform::Ios(target) => prepare_go_lib_build_ios(&mut command, target),
     };
+
     command.arg("-o").arg(lib_path);
 
     let output = command
         .output()
         .expect("Failed to get go build command output");
+
     if !output.status.success() {
         eprintln!("{command:?}");
         eprint!("Failed to compile go library:");
@@ -166,6 +181,7 @@ fn build_go_lib(
     if let Platform::Windows(_) = platform {
         post_process_go_lib_build_windows(lib_dir);
     }
+
     binding_env
 }
 
