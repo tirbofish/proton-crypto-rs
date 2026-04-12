@@ -137,8 +137,14 @@ fn build_go_lib(
     let mut command = Command::new(std::env::var("GO").unwrap_or_else(|_| "go".to_string()));
     command
         .current_dir("go")
-        .env("CGO_ENABLED", "1")
-        .arg("build")
+        .env("CGO_ENABLED", "1");
+
+    // if the current environment is docs.rs (which doesnt allow root), change gocache. 
+    if std::env::var("DOCS_RS").is_ok() {
+        command.env("GOCACHE", lib_dir);
+    }
+        
+    command.arg("build")
         .arg("-trimpath");
 
     let binding_env = match platform {
