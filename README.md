@@ -3,6 +3,11 @@
 Utility crates for cryptographic operations at Proton.
 Not intended or vetted for general usage outside Proton.
 
+> [!WARNING]
+> This crate is a fork of the original, as Proton has not published the library to crates.io. 
+> 
+> The original repository is at [ProtonMail/proton-crypto-rs](https://github.com/ProtonMail/proton-crypto-rs), and new releases may potentially be updated. 
+
 ## Crates
 
 - **proton-crypto**: Core Proton cryptography library: generic Proton-specific OpenPGP and SRP API. Backends: GopenPGP (`gopgp`) or pure Rust (`rustpgp` via proton-rpgp).
