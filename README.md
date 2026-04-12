@@ -7,6 +7,9 @@ Not intended or vetted for general usage outside Proton.
 > This crate is a fork of the original, as Proton has not published the library to crates.io. 
 > 
 > The original repository is at [ProtonMail/proton-crypto-rs](https://github.com/ProtonMail/proton-crypto-rs), and new releases may potentially be updated. 
+> 
+> If Proton wishes for me to take down this repository, just holler at me [here](mailto:4tkbtyes@pm.me)
+
 
 ## Crates
 

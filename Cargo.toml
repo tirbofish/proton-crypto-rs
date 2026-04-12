@@ -15,6 +15,7 @@ edition = "2021"
 license = "MIT"
 license-file = "LICENSE"
 authors = ["Proton AG"]
+repository = "https://github.com/ProtonMail/proton-crypto-rs"
 
 [workspace.lints.rust]
 trivial_numeric_casts= "warn"

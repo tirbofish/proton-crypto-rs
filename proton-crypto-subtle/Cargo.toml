@@ -2,8 +2,10 @@
 name = "proton-crypto-subtle"
 version = "0.2.1"
 edition.workspace = true
-license = "MIT"
+
 license-file = "LICENSE"
+description = "Low-level primitives: AEAD, HKDF"
+repository.workspace = true
 authors.workspace = true
 
 [dependencies]
