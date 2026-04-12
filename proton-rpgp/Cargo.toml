@@ -2,8 +2,10 @@
 name = "proton-rpgp"
 version = "0.3.1"
 edition.workspace = true
-license = "MIT"
+
 license-file = "LICENSE"
+description = "Pure Rust OpenPGP wrapper on top of rpgp; used as an optional backend in proton-crypto"
+repository.workspace = true
 authors.workspace = true
 
 [dependencies]

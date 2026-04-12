@@ -2,8 +2,10 @@
 name = "proton-srp"
 version = "0.8.2"
 edition.workspace = true
-license = "MIT"
+
 license-file = "LICENSE"
+description = "Pure Rust implementation of Proton’s Secure Remote Password (SRP) protocol"
+repository.workspace = true
 authors.workspace = true
 
 [dependencies]

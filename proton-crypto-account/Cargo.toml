@@ -2,8 +2,10 @@
 name = "proton-crypto-account"
 version = "0.18.0"
 edition.workspace = true
-license = "MIT"
+
 license-file = "LICENSE"
+description = "Proton account cryptography (user keys, address keys, etc.) and key management"
+repository.workspace = true
 authors.workspace = true
 
 [dependencies]
