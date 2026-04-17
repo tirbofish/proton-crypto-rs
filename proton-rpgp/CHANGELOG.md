@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - 2026-00-00
 
+## [0.3.3] - 2026-04-17
+
+### Fixed
+
+- Fixed `VerificationResultUtility::selected_signature_bytes` to return only the selected signature bytes rather than all signatures bytes.
+
 ## [0.3.2] - 2026-04-16
 
 ### Fixed
