@@ -104,7 +104,7 @@ impl SignatureInfo {
     }
 
     pub fn selected_signature(&self) -> Option<&[u8]> {
-        if self.0.key_fingerprint.is_null() {
+        if self.0.selected_signature.is_null() {
             return None;
         }
         // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage
