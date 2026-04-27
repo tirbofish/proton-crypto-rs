@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - 2023-00-00
 
+### Fixed
+
+- Fixed `selected_signature` behavior on signature info: now reliably returns the signature even when the issuer fingerprint is missing.
+
 ## [0.3.5] - 2026-04-16
 
 ### Fixed
