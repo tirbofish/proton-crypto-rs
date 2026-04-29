@@ -134,30 +134,6 @@ func (r *ExternalReader) Read(b []byte) (n int, err error) {
 	return int(read), nil
 }
 
-// verifyReaderWrapper wraps a VerifyDataReader to track EOF state.
-// This prevents calling Read on the underlying reader after it has
-// returned io.EOF, which would cause gopenpgp to return a spurious
-// MDC hash mismatch error.
-type verifyReaderWrapper struct {
-	reader *crypto.VerifyDataReader
-	eof    bool
-}
-
-func (w *verifyReaderWrapper) Read(b []byte) (int, error) {
-	if w.eof {
-		return 0, io.EOF
-	}
-	n, err := w.reader.Read(b)
-	if errors.Is(err, io.EOF) {
-		w.eof = true
-	}
-	return n, err
-}
-
-func newVerifyReaderWrapper(reader *crypto.VerifyDataReader) *verifyReaderWrapper {
-	return &verifyReaderWrapper{reader: reader}
-}
-
 //export pgp_verification_reader_read
 func pgp_verification_reader_read(
 	r C.uintptr_t,
@@ -170,7 +146,7 @@ func pgp_verification_reader_read(
 			cErr = errorToPGPError(fmt.Errorf("go panic: %v", err))
 		}
 	}()
-	reader := handleToVerifyReaderWrapper(r)
+	reader := handleToVerifyReader(r)
 	// nosemgrep: go.lang.security.audit.unsafe.use-of-unsafe-block, gitlab.gosec.G103-1
 	bufferSlice := unsafe.Slice((*byte)(buffer), (C.int)(buffer_len))
 	n, err := reader.Read(bufferSlice)
@@ -191,8 +167,8 @@ func pgp_verification_reader_get_verify_result(
 			cErr = errorToPGPError(fmt.Errorf("go panic: %v", err))
 		}
 	}()
-	wrapper := handleToVerifyReaderWrapper(handle)
-	result, err := wrapper.reader.VerifySignature()
+	reader := handleToVerifyReader(handle)
+	result, err := reader.VerifySignature()
 	if err != nil {
 		return errorToPGPError(err)
 	}
