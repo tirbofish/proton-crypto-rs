@@ -84,13 +84,13 @@ func handleToKey(handle C.uintptr_t) *crypto.Key {
 	return kr
 }
 
-func handleToVerifyReaderWrapper(handle C.uintptr_t) *verifyReaderWrapper {
+func handleToVerifyReader(handle C.uintptr_t) *crypto.VerifyDataReader {
 	v := cgo.Handle(handle).Value()
 	if v == nil {
 		panic("could not resolve reader handle")
 	}
 
-	reader, ok := v.(*verifyReaderWrapper)
+	reader, ok := v.(*crypto.VerifyDataReader)
 	if !ok {
 		panic("handle does not contain a go reader")
 	}
