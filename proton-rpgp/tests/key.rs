@@ -2,9 +2,9 @@ use std::sync::LazyLock;
 
 use pgp::crypto::{hash::HashAlgorithm, sym::SymmetricKeyAlgorithm};
 use proton_rpgp::{
-    AccessKeyInfo, DataEncoding, Error, KeyGenerationType, KeyGenerator, KeyOperationError,
-    LockedPrivateKey, PrivateKey, Profile, ProfileSettings, PublicKey, SessionKey,
-    StringToKeyOption, UnixTime,
+    AccessKeyInfo, DataEncoding, Error, KeyGenerationType, KeyGenerator, KeyLock,
+    KeyOperationError, LockedPrivateKey, PrivateKey, Profile, ProfileSettings, PublicKey,
+    SessionKey, StringToKeyOption, UnixTime,
 };
 
 pub const TEST_PRIVATE_KEY: &str = include_str!("../test-data/keys/locked_private_key_v6.asc");
@@ -28,7 +28,7 @@ fn key_import_and_unlock_private_key() {
         .expect("Failed to import key");
 
     let unlocked = key
-        .unlock(TEST_PRIVATE_KEY_PASSWORD.as_bytes())
+        .unlock(TEST_PRIVATE_KEY_PASSWORD.as_bytes(), KeyLock::Expected)
         .expect("Failed to unlock key");
     assert_eq!(unlocked.key_id(), key.key_id());
 }
@@ -38,7 +38,7 @@ fn key_import_and_unlock_private_key_fail() {
     let key = LockedPrivateKey::import(TEST_PRIVATE_KEY.as_bytes(), DataEncoding::Armored)
         .expect("Failed to import key");
 
-    let unlocked = key.unlock(b"wrong_password");
+    let unlocked = key.unlock(b"wrong_password", KeyLock::Expected);
     assert!(matches!(
         unlocked,
         Err(Error::KeyOperation(KeyOperationError::Unlock(_, _)))
@@ -78,7 +78,7 @@ fn key_export_import_unlock_key() {
         .expect("Failed to import key");
 
     let unlocked_key = key
-        .unlock(TEST_PRIVATE_KEY_PASSWORD.as_bytes())
+        .unlock(TEST_PRIVATE_KEY_PASSWORD.as_bytes(), KeyLock::Expected)
         .expect("Failed to unlock key");
 
     let exported = unlocked_key
@@ -105,7 +105,7 @@ fn key_export_import_unlocked_key() {
         .expect("Failed to import key");
 
     let unlocked_key = key
-        .unlock(TEST_PRIVATE_KEY_PASSWORD.as_bytes())
+        .unlock(TEST_PRIVATE_KEY_PASSWORD.as_bytes(), KeyLock::Expected)
         .expect("Failed to unlock key");
 
     let exported = unlocked_key
