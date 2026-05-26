@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - 2026-00-00
 
+### Changed
+
+- BREAKING: `PrivateKey::import` now throws an error if the key is not locked. Unifies the behaviour with gopenpgp-sys and improves security.
+
 ## [0.3.3] - 2026-04-17
 
 ### Fixed

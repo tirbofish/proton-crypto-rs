@@ -173,6 +173,9 @@ pub enum KeyOperationError {
 
     #[error("Key is locked")]
     Locked,
+
+    #[error("Expected a locked private key, but the key is already unlocked")]
+    ExpectLocked,
 }
 
 #[derive(Debug, thiserror::Error)]

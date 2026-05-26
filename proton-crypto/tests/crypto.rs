@@ -17,7 +17,10 @@ use common::{
     TEST_SESSION_KEY, TEST_SIGNATURE, TEST_SIGNCRYPTED_MESSAGE, TEST_TIME,
 };
 
-use crate::common::{TEST_CLEARTEXT_MESSAGE, TEST_INLINE_SIGNATURE_MESSAGE, TEST_RSA_1023_KEY};
+use crate::common::{
+    TEST_CLEARTEXT_MESSAGE, TEST_INLINE_SIGNATURE_MESSAGE, TEST_PRIVATE_KEY_UNLOCKED,
+    TEST_RSA_1023_KEY,
+};
 
 fn get_test_private_key<T: PGPProviderSync>(provider: &T) -> T::PrivateKey {
     provider
@@ -863,4 +866,15 @@ fn test_api_import_private_key_as_public() {
         key.key_id(),
         OpenPGPKeyID::from_hex("cb186c4f0609a697").unwrap()
     );
+}
+
+#[test]
+fn test_api_import_private_key_import_error_on_unlocked() {
+    let provider = ProtonPGP::new_sync();
+    let result = provider.private_key_import(
+        TEST_PRIVATE_KEY_UNLOCKED.as_bytes(),
+        "password",
+        DataEncoding::Armor,
+    );
+    assert!(result.is_err());
 }

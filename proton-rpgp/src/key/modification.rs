@@ -286,9 +286,8 @@ mod tests {
 
     #[test]
     fn key_modification_user_id_v4() {
-        let key = PrivateKey::import(
+        let key = PrivateKey::import_unlocked(
             include_str!("../../test-data/keys/private_key_v4.asc").as_bytes(),
-            TEST_PRIVATE_KEY_PASSWORD.as_bytes(),
             DataEncoding::Armored,
         )
         .expect("Failed to import key");
@@ -368,9 +367,8 @@ mod tests {
     #[test]
     #[allow(clippy::indexing_slicing)]
     fn key_modification_user_id_v4_reset() {
-        let key = PrivateKey::import(
+        let key = PrivateKey::import_unlocked(
             include_str!("../../test-data/keys/private_key_v4.asc").as_bytes(),
-            TEST_PRIVATE_KEY_PASSWORD.as_bytes(),
             DataEncoding::Armored,
         )
         .expect("Failed to import key");

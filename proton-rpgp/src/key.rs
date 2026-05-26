@@ -38,6 +38,13 @@ pub use modification::*;
 mod info;
 pub use info::*;
 
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum KeyLock {
+    #[default]
+    Expected,
+    NotRequired,
+}
+
 /// A trait for types that can be converted to a `PublicKey` reference.
 pub trait AsPublicKeyRef {
     fn as_public_key(&self) -> &PublicKey;
@@ -196,7 +203,10 @@ impl LockedPrivateKey {
     }
 
     /// Unlock the secret key with a key password.
-    pub fn unlock(&self, password: &[u8]) -> crate::Result<PrivateKey> {
+    pub fn unlock(&self, password: &[u8], lock_expectation: KeyLock) -> crate::Result<PrivateKey> {
+        if lock_expectation == KeyLock::Expected && !self.is_locked() {
+            return Err(KeyOperationError::ExpectLocked.into());
+        }
         let local_password = Password::from(password);
         let mut secret_copy = self.0.secret.clone();
         secret_copy
@@ -301,10 +311,7 @@ impl PrivateKey {
         encoding: DataEncoding,
     ) -> crate::Result<PrivateKey> {
         let locked = LockedPrivateKey::import(key_data, encoding)?;
-        if !locked.is_locked() {
-            return Ok(locked.0);
-        }
-        locked.unlock(password)
+        locked.unlock(password, KeyLock::Expected)
     }
 
     /// Imports multiple unlocked `OpenPGP` secret keys from a single binary blob.
@@ -324,7 +331,7 @@ impl PrivateKey {
         if locked.is_locked() {
             return Err(KeyOperationError::Locked.into());
         }
-        locked.unlock("".as_bytes())
+        locked.unlock("".as_bytes(), KeyLock::NotRequired)
     }
 
     /// Lock the secret key with a password and export it.
