@@ -270,14 +270,7 @@ impl<'a> DetachedSignaturesBodyReader<'a> {
                     mut source,
                 } => {
                     let mut buffer = BytesMut::with_capacity(BUFFER_SIZE);
-                    let read = fill_buffer_bytes(&mut source, &mut buffer, BUFFER_SIZE)?;
-
-                    if read == 0 {
-                        return Err(io::Error::new(
-                            io::ErrorKind::UnexpectedEof,
-                            "No data found to verify",
-                        ));
-                    }
+                    fill_buffer_bytes(&mut source, &mut buffer, BUFFER_SIZE)?;
 
                     for (norm_hasher, _) in &mut norm_hashers {
                         if let Ok(ref mut hasher) = norm_hasher {

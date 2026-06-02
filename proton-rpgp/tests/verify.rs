@@ -78,6 +78,43 @@ pub fn verify_detached_signature_v4_stream() {
 
 #[test]
 #[allow(clippy::missing_panics_doc)]
+pub fn verify_detached_signature_v4_stream_empty() {
+    const SIGNATURE: &str = include_str!("../test-data/signatures/signature_v4_empty.asc");
+
+    let data = b"";
+
+    let test_date = UnixTime::new(1_780_401_662);
+
+    let verification_key = PublicKey::import(TEST_KEY.as_bytes(), DataEncoding::Armored)
+        .expect("Failed to import key");
+
+    let mut reader = Verifier::default()
+        .with_verification_key(&verification_key)
+        .at_date(test_date.into())
+        .verify_detached_stream(&data[..], SIGNATURE.as_bytes(), DataEncoding::Armored)
+        .expect("Failed to create verifying reader");
+
+    reader.discard_all_data().expect("Failed to discard data");
+
+    let verification_result = reader.verification_result();
+
+    match verification_result {
+        Ok(verification_information) => {
+            assert_eq!(verification_information.key_id, verification_key.key_id());
+            assert_eq!(
+                verification_information.signature_creation_time,
+                UnixTime::new(1_752_476_259)
+            );
+            check_signatures(&verification_information, 1);
+        }
+        Err(verification_error) => {
+            panic!("Verification failed: {verification_error}");
+        }
+    }
+}
+
+#[test]
+#[allow(clippy::missing_panics_doc)]
 pub fn verify_detached_signature_v4_fails() {
     const SIGNATURE: &str = include_str!("../test-data/signatures/signature_v4_corrupt.asc");
 
