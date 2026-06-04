@@ -24,6 +24,7 @@ use std::sync::Arc;
 pub const VERSION: &str = "0.3.2";
 
 #[allow(clippy::module_name_repetitions)]
+#[derive(Clone)]
 pub struct GoPGPProvider(pub &'static CryptoClock);
 
 impl PGPProvider for GoPGPProvider {
