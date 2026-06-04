@@ -24,8 +24,6 @@ pgp = { version = "0.19.0", default-features = false, features = ["draft-pqc", "
 
 [features]
 default = []
-# Enables assembly based optimizations
-asm = ["pgp/asm"]
 
 [lints]
 workspace = true
