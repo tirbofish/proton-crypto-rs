@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - 2025-00-00
 
+## [0.19.0] - 2026-06-05
+
+### Changed
+
+- BREAKING: Removed the `rustpgp_asm` feature flag due to dangerous instability on Apple silicon (Apple arm) platforms. 
+- Update `proton-crypto` to 0.13.0.
+
 ## [0.18.2] - 2026-04-16
 
 ### Changed

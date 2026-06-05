@@ -7,9 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - 2026-00-00
 
+## [0.4.0] - 2026-06-05
+
 ### Changed
 
+- Allow streaming verification of an empty message with a detached signature.
+
 - BREAKING: `PrivateKey::import` now throws an error if the key is not locked. Unifies the behaviour with gopenpgp-sys and improves security.
+
+- On unlocking a locked key, validate that the primary key’s public parameters match the just-decrypted secret values. This thwarts tampering with unauthenticated public material and hardens key security.
+
+- BREAKING: Removed the `asm` feature flag due to dangerous instability on apple arm (Apple clang 21 (CLT 26.5)). 
 
 ## [0.3.3] - 2026-04-17
 

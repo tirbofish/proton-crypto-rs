@@ -7,9 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - 2023-00-00
 
+## [0.3.6] - 2026-06-05
+
 ### Fixed
 
 - Fixed `selected_signature` behavior on signature info: now reliably returns the signature even when the issuer fingerprint is missing.
+
+### Changed
+
+- Update GopenPGP to `v3.4.1-proton`
 
 ## [0.3.5] - 2026-04-16
 
