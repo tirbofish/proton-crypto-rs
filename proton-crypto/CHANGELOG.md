@@ -7,9 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - 2025-00-00
 
+## [0.13.0] - 2026-06-05
+
 ### Changed
 
-- Bump `proton-rpgp` to `0.3.3`.
+- BREAKING: Removed the `rustpgp_asm` feature flag due to dangerous instability on Apple silicon (Apple arm) platforms.
+- Bump `proton-rpgp` to `0.4.0`.
+- Bump `gopenpgp-sys` to `0.3.6`.
 
 ## [0.12.2] - 2026-04-16
 
