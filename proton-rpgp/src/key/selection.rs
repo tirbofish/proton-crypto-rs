@@ -9,9 +9,10 @@ use pgp::{
 };
 
 use crate::{
-    types::CheckUnixTime, AnyPublicKey, AnySecretKey, CertificationSelectionExt,
-    GenericKeyIdentifier, KeyCertificationSelectionError, KeyRequirementError, KeyValidationError,
-    PrivateComponentKey, Profile, PublicComponentKey, PublicKeyExt, SignatureExt, UnixTime,
+    key::params::PublicParamsExt, types::CheckUnixTime, AnyPublicKey, AnySecretKey,
+    CertificationSelectionExt, GenericKeyIdentifier, KeyCertificationSelectionError,
+    KeyRequirementError, KeyValidationError, PrivateComponentKey, Profile, PublicComponentKey,
+    PublicKeyExt, SignatureExt, UnixTime,
 };
 
 use rsa::traits::PublicKeyParts;
@@ -587,6 +588,11 @@ fn check_valid_encryption_key(
         ));
     }
 
+    // Check if the library supports performing encryption or decryption with the key.
+    if !public_key.public_params().can_perform_operation() {
+        return Err(KeyRequirementError::UnsupportedAlgorithm);
+    }
+
     // Check the key flags if the profile does not ignore them.
     if profile.ignore_key_flags() {
         return Ok(());
@@ -640,6 +646,11 @@ where
         return Err(KeyRequirementError::InvalidUsageAlgorithm(
             public_key.algorithm(),
         ));
+    }
+
+    // Check if the library supports to perform the operation with the key.
+    if !public_key.public_params().can_perform_operation() {
+        return Err(KeyRequirementError::UnsupportedAlgorithm);
     }
 
     // Check the key flags if the profile does not ignore them.
@@ -719,6 +730,7 @@ pub(crate) fn check_key_not_expired<K: VerifyingKey + Serialize>(
 /// Checks if the key meets the requirements of the profile.
 ///
 /// The requirements are:
+/// - The key is supported by the library.
 /// - The key algorithm is accepted by the profile.
 /// - The key has enough bits for the RSA algorithm.
 /// - The key has a valid curve for the ECC algorithm.
@@ -728,6 +740,9 @@ fn check_key_requirements(
 ) -> Result<(), KeyRequirementError> {
     if profile.reject_public_key_algorithm(public_key.algorithm()) {
         return Err(KeyRequirementError::WeakAlgorithm(public_key.algorithm()));
+    }
+    if !public_key.public_params().can_perform_operation() {
+        return Err(KeyRequirementError::UnsupportedAlgorithm);
     }
     match public_key.algorithm() {
         PublicKeyAlgorithm::RSA | PublicKeyAlgorithm::RSASign | PublicKeyAlgorithm::RSAEncrypt => {

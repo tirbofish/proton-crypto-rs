@@ -7,14 +7,15 @@ use pgp::{
     },
     crypto::sym::SymmetricKeyAlgorithm,
     ser::Serialize,
-    types::{KeyDetails, KeyVersion, Password},
+    types::{KeyDetails, KeyVersion, Password, S2kParams, SecretParams},
 };
 use rand::RngCore as _;
 use zeroize::Zeroizing;
 
 use crate::{
-    key::preferences::RecipientsAlgorithms, CheckUnixTime, DataEncoding, EncryptionError,
-    KeyOperationError, Profile, ResolvedDataEncoding,
+    key::{params::PlainSecretParamsExt, preferences::RecipientsAlgorithms},
+    CheckUnixTime, DataEncoding, EncryptionError, ExpectLockedError, KeyOperationError,
+    KeySecretParamValidationError, Profile, ResolvedDataEncoding,
 };
 
 pub mod certifications;
@@ -37,6 +38,8 @@ pub use modification::*;
 
 mod info;
 pub use info::*;
+
+mod params;
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum KeyLock {
@@ -189,11 +192,12 @@ impl LockedPrivateKey {
         &self.0.public.inner
     }
 
-    /// Check if the secret key is locked.
+    /// Returns `true` if the secret key or any of its subkeys are locked,
     ///
-    /// A secret key is locked if its private key material is encrypted with a password.
+    /// A "locked" key means the secret/private key data is protected and cannot be used for cryptographic operations
+    /// until it is unlocked with the correct password.
     pub fn is_locked(&self) -> bool {
-        self.0.secret.secret_params().is_encrypted()
+        self.primary_is_locked()
             || self
                 .0
                 .secret
@@ -202,13 +206,45 @@ impl LockedPrivateKey {
                 .any(|sub_key| sub_key.secret_params().is_encrypted())
     }
 
+    /// Determines whether the primary secret key and all associated subkeys are locked (encrypted)
+    /// and there are no public subkeys.
+    ///
+    /// Checks that all secret components (primary key and subkeys) are locked (encrypted) and that there are no public subkeys.
+    ///
+    /// Returns `Ok(())` if every secret component requires unlocking.
+    /// Returns an error indicating which component is not locked or if public subkeys are present.
+    pub fn is_fully_locked(&self) -> Result<(), KeyOperationError> {
+        if !self.primary_is_locked() {
+            return Err(ExpectLockedError::PrimaryKeyUnlocked.into());
+        }
+        for subkey in &self.0.secret.secret_subkeys {
+            if !subkey.secret_params().is_encrypted() {
+                return Err(ExpectLockedError::SubkeyUnlocked(subkey.legacy_key_id()).into());
+            }
+        }
+        if !self.0.secret.public_subkeys.is_empty() {
+            return Err(ExpectLockedError::NoPublicSubkeys.into());
+        }
+        Ok(())
+    }
+
+    fn primary_is_locked(&self) -> bool {
+        self.0.secret.secret_params().is_encrypted()
+    }
+
     /// Unlock the secret key with a key password.
     pub fn unlock(&self, password: &[u8], lock_expectation: KeyLock) -> crate::Result<PrivateKey> {
-        if lock_expectation == KeyLock::Expected && !self.is_locked() {
-            return Err(KeyOperationError::ExpectLocked.into());
+        if lock_expectation == KeyLock::Expected {
+            if let Err(err) = self.is_fully_locked() {
+                return Err(err.into());
+            }
         }
         let local_password = Password::from(password);
         let mut secret_copy = self.0.secret.clone();
+        let primary_was_aead_encrypted = matches!(
+            secret_copy.primary_key.secret_params(),
+            SecretParams::Encrypted(params) if matches!(params.string_to_key_params(), S2kParams::Aead { .. })
+        );
         secret_copy
             .primary_key
             .remove_password(&local_password)
@@ -219,7 +255,17 @@ impl LockedPrivateKey {
                 .remove_password(&local_password)
                 .map_err(|err| KeyOperationError::Unlock(subkey.key.legacy_key_id(), err))?;
         }
-        Ok(PrivateKey::new(secret_copy))
+        let private_key = PrivateKey::new(secret_copy);
+        if self.primary_is_locked() {
+            // If we unlock the primary secret key, we validate that the public parts match the private parts.
+            // Subkeys are verified via binding signatures from the primary key.
+            // This prevents an attacker from modifying the public parts of a locked key.
+            // For aead encrypted primary secret keys, the public parts are authenticated.
+            private_key
+                .validate_primary_secret_key(primary_was_aead_encrypted)
+                .map_err(KeyOperationError::ValidatePublicParts)?;
+        }
+        Ok(private_key)
     }
 
     /// Import a locked `OpenPGP` secret key from a byte slice.
@@ -320,7 +366,10 @@ impl PrivateKey {
         if locked_keys.iter().any(LockedPrivateKey::is_locked) {
             return Err(KeyOperationError::Locked.into());
         }
-        Ok(locked_keys.into_iter().map(|key| key.0).collect())
+        locked_keys
+            .into_iter()
+            .map(|key| key.unlock("".as_bytes(), KeyLock::NotRequired))
+            .collect()
     }
 
     /// Import an unlocked `OpenPGP` secret key from a byte slice.
@@ -435,6 +484,23 @@ impl PrivateKey {
         decryption_keys
             .iter()
             .all(PrivateComponentKey::is_forwarding_key)
+    }
+
+    /// Checks that the unlocked primary secret key material matches the parsed public key material.
+    ///
+    /// For AEAD encrypted primary secret keys, the public parts are authenticated
+    /// and validation always succeeds.
+    pub(crate) fn validate_primary_secret_key(
+        &self,
+        used_aead_encryption: bool,
+    ) -> Result<(), KeySecretParamValidationError> {
+        if used_aead_encryption {
+            return Ok(());
+        }
+        let SecretParams::Plain(secret_params) = self.secret.secret_params() else {
+            return Err(KeySecretParamValidationError::ValidatePublicPartsOnLocked);
+        };
+        secret_params.validate_public_params(self.secret.public_params())
     }
 }
 
@@ -583,11 +649,12 @@ fn generate_session_key_bytes(
 
 #[cfg(test)]
 mod tests {
-    use pgp::types::KeyDetails;
+    use pgp::types::{KeyDetails, S2kParams};
 
     use crate::{
-        types::UnixTime, DataEncoding, KeyCertificationSelectionError, KeyValidationError,
-        PrivateKey, PrivateKeySelectionExt, Profile, ProfileSettings, PublicKey, SignatureUsage,
+        types::UnixTime, DataEncoding, KeyCertificationSelectionError, KeyLock, KeyValidationError,
+        LockedPrivateKey, PrivateKey, PrivateKeySelectionExt, Profile, ProfileSettings, PublicKey,
+        SignatureUsage,
     };
 
     use super::PublicKeySelectionExt;
@@ -837,5 +904,59 @@ mod tests {
             selected.private_key.fingerprint().to_string(),
             "b21caed66abfe03ae31fcf4a27b3a9160a712c96"
         );
+    }
+
+    #[test]
+    fn validation_does_not_consider_aead_encrypted_primary_secret_key() {
+        use pgp::{
+            composed::KeyType,
+            crypto::{ecc_curve::ECCCurve, public_key::PublicKeyAlgorithm},
+            types::SecretParams,
+        };
+        use rand::{rngs::StdRng, SeedableRng};
+
+        const TEST_KEY: &str = include_str!("../test-data/keys/locked_private_key_v4_aead.asc");
+        const PASSPHRASE: &[u8] = b"passphrase";
+
+        let locked = LockedPrivateKey::import(TEST_KEY.as_bytes(), DataEncoding::Armored)
+            .expect("Failed to import AEAD key");
+        assert!(locked.is_locked());
+
+        let SecretParams::Encrypted(encrypted_params) = locked.0.secret.primary_key.secret_params()
+        else {
+            panic!("expected locked primary secret key");
+        };
+        assert_eq!(encrypted_params.string_to_key_id(), 253);
+        assert!(matches!(
+            encrypted_params.string_to_key_params(),
+            S2kParams::Aead { .. }
+        ));
+
+        let private_key = locked
+            .unlock(PASSPHRASE, KeyLock::Expected)
+            .expect("unlock should succeed without primary secret key validation");
+
+        let mut corrupted_secret = private_key.secret.clone();
+        let key_type = match corrupted_secret.primary_key.public_key().algorithm() {
+            PublicKeyAlgorithm::Ed25519 => KeyType::Ed25519,
+            PublicKeyAlgorithm::EdDSALegacy => KeyType::Ed25519Legacy,
+            PublicKeyAlgorithm::ECDH => KeyType::ECDH(ECCCurve::Curve25519),
+            other => panic!("unsupported test key algorithm: {other:?}"),
+        };
+        let mut rng = StdRng::seed_from_u64(0xDEAD_BEEF);
+        let (_, wrong_secret_params) = key_type.generate(&mut rng).expect("key generation");
+        let SecretParams::Plain(wrong_plain) = &wrong_secret_params else {
+            panic!("expected plain secret params");
+        };
+        corrupted_secret.primary_key = pgp::packet::SecretKey::new(
+            corrupted_secret.primary_key.public_key().clone(),
+            SecretParams::Plain(wrong_plain.clone()),
+        )
+        .expect("corrupted primary key");
+        let corrupted = PrivateKey::new(corrupted_secret);
+
+        corrupted
+            .validate_primary_secret_key(true)
+            .expect("validation should succeed");
     }
 }
