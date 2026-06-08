@@ -1,11 +1,13 @@
 use proton_rpgp::{
-    AccessKeyInfo, AsPublicKeyRef, DataEncoding, PrivateKey, ProfileSettings, PublicKey, UnixTime,
-    VerificationError, VerificationInformation, VerificationResultUtility, Verifier,
+    AccessKeyInfo, AsPublicKeyRef, DataEncoding, PrivateKey, ProfileSettings, PublicKey, Signer,
+    UnixTime, VerificationContext, VerificationError, VerificationInformation,
+    VerificationResultUtility, Verifier,
 };
 use std::io::{self};
 
 pub const TEST_KEY: &str = include_str!("../test-data/keys/public_key_v4.asc");
 pub const TEST_KEY_V6: &str = include_str!("../test-data/keys/public_key_v6.asc");
+pub const TEST_PRIVATE_KEY: &str = include_str!("../test-data/keys/private_key_v4.asc");
 
 mod utils;
 
@@ -582,6 +584,156 @@ pub fn verificarion_result_utility() {
         })
         .count();
     assert_eq!(count, 2, "Expected 2 signatures, got {count}");
+}
+
+#[test]
+#[allow(clippy::missing_panics_doc)]
+pub fn verify_rejects_unsigned_notation_context() {
+    const SIGNATURE: &str =
+        include_str!("../test-data/signatures/signature_v4_unsigned_context.asc");
+    const KEY: &str = include_str!("../test-data/keys/public_key_v4_unsigned_context.asc");
+    const TEXT: &[u8] = b"message with unsigned context";
+    let date = UnixTime::new(1_700_000_000);
+
+    let key = PublicKey::import(KEY.as_bytes(), DataEncoding::Armored).expect("Failed to import");
+
+    // Required context is not present in the signed data -> verification fails.
+    let with_context = Verifier::default()
+        .with_verification_key(&key)
+        .with_verification_context(VerificationContext::new(
+            "test-context-unsigned".to_owned(),
+            true,
+            None,
+        ))
+        .at_date(date.into())
+        .verify_detached(TEXT, SIGNATURE.as_bytes(), DataEncoding::Armored);
+    assert!(matches!(
+        with_context,
+        Err(VerificationError::BadContext(_, _))
+    ));
+
+    // Without a required context the unsigned notation is ignored and the
+    // (otherwise valid) signature verifies.
+    let without_context = Verifier::default()
+        .with_verification_key(&key)
+        .at_date(date.into())
+        .verify_detached(TEXT, SIGNATURE.as_bytes(), DataEncoding::Armored);
+    assert!(without_context.is_ok());
+}
+
+#[test]
+#[allow(clippy::missing_panics_doc)]
+pub fn verify_detached_signature_wrong_key() {
+    let date = UnixTime::new(1_752_476_259);
+
+    let signing_key =
+        PrivateKey::import_unlocked(TEST_PRIVATE_KEY.as_bytes(), DataEncoding::Armored)
+            .expect("Failed to import key");
+    let wrong_key = PublicKey::import(TEST_KEY_V6.as_bytes(), DataEncoding::Armored)
+        .expect("Failed to import key");
+
+    let signature_bytes = Signer::default()
+        .with_signing_key(&signing_key)
+        .at_date(date.into())
+        .sign_detached(b"hello world", DataEncoding::Armored)
+        .expect("Failed to sign");
+
+    let verification_result = Verifier::default()
+        .with_verification_key(&wrong_key)
+        .at_date(date.into())
+        .verify_detached(b"hello world", &signature_bytes, DataEncoding::Armored);
+
+    assert!(matches!(
+        verification_result,
+        Err(VerificationError::NoVerifier(_, _))
+    ));
+}
+
+#[test]
+#[allow(clippy::missing_panics_doc)]
+pub fn verify_cleartext_signature_wrong_key() {
+    let date = UnixTime::new(1_752_476_259);
+
+    let signing_key =
+        PrivateKey::import_unlocked(TEST_PRIVATE_KEY.as_bytes(), DataEncoding::Armored)
+            .expect("Failed to import key");
+    let wrong_key = PublicKey::import(TEST_KEY_V6.as_bytes(), DataEncoding::Armored)
+        .expect("Failed to import key");
+
+    let cleartext = Signer::default()
+        .with_signing_key(&signing_key)
+        .at_date(date.into())
+        .sign_cleartext(b"hello world")
+        .expect("Failed to sign");
+
+    let verified_data = Verifier::default()
+        .with_verification_key(&wrong_key)
+        .at_date(date.into())
+        .verify_cleartext(std::str::from_utf8(&cleartext).expect("Invalid utf8"))
+        .expect("Failed to verify");
+
+    assert_eq!(verified_data.data, b"hello world");
+    assert!(matches!(
+        verified_data.verification_result,
+        Err(VerificationError::NoVerifier(_, _))
+    ));
+}
+
+#[test]
+#[allow(clippy::missing_panics_doc)]
+pub fn verify_detects_missing_signature() {
+    let date = UnixTime::new(1_752_476_259);
+
+    let key = PublicKey::import(TEST_KEY.as_bytes(), DataEncoding::Armored)
+        .expect("Failed to import key");
+
+    let builder = pgp::composed::MessageBuilder::from_bytes("", &b"hello world"[..]);
+    let mut unsigned_message = Vec::new();
+    builder
+        .to_armored_writer(
+            rand::thread_rng(),
+            pgp::composed::ArmorOptions::default(),
+            &mut unsigned_message,
+        )
+        .expect("Failed to build message");
+
+    let verified_data = Verifier::default()
+        .with_verification_key(&key)
+        .at_date(date.into())
+        .verify(&unsigned_message, DataEncoding::Armored)
+        .expect("Failed to verify");
+
+    assert_eq!(verified_data.data, b"hello world");
+    assert!(matches!(
+        verified_data.verification_result,
+        Err(VerificationError::NotSigned)
+    ));
+}
+
+#[test]
+#[allow(clippy::missing_panics_doc)]
+pub fn verify_detached_signature_reused_with_different_message_fails() {
+    let date = UnixTime::new(1_752_476_259);
+
+    let signing_key =
+        PrivateKey::import_unlocked(TEST_PRIVATE_KEY.as_bytes(), DataEncoding::Armored)
+            .expect("Failed to import key");
+
+    let signature_bytes = Signer::default()
+        .with_signing_key(&signing_key)
+        .at_date(date.into())
+        .sign_detached(b"hello world", DataEncoding::Armored)
+        .expect("Failed to sign");
+
+    let verification_result = Verifier::default()
+        .with_verification_key(signing_key.as_public_key())
+        .at_date(date.into())
+        .verify_detached(b"goodbye world", &signature_bytes, DataEncoding::Armored);
+
+    assert!(matches!(
+        verification_result,
+        Err(VerificationError::Failed(_, _))
+    ));
 }
 
 fn check_signatures(info: &VerificationInformation, expected_number: usize) {
