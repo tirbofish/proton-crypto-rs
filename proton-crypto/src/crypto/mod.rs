@@ -35,6 +35,16 @@ pub use keys::*;
 mod armor;
 pub use armor::*;
 
+/// The clock skew for verification in seconds.
+///
+/// This is the maximum amount of time that a signature can be verified in the future.
+pub const CLOCK_SKEW_VERIFICATION: u64 = 60;
+
+/// The clock skew for key generation in seconds.
+///
+/// A key generation time is `CLOCK_SKEW_KEY_GENERATION` seconds in the past.
+pub const CLOCK_SKEW_KEY_GENERATION: u64 = 60;
+
 /// `PGPProvider` provides access to an `OpenPGP` implementation.
 pub trait PGPProvider: Send + Sync + 'static + Clone {
     /// An `OpenPGP` session key type.
