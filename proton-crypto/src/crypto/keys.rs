@@ -1,5 +1,7 @@
 use std::future::Future;
 
+use crate::crypto::CLOCK_SKEW_KEY_GENERATION;
+
 use super::{OpenPGPFingerprint, OpenPGPKeyID, SHA256Fingerprint, UnixTimestamp};
 
 use super::SessionKeyAlgorithm;
@@ -126,4 +128,12 @@ pub trait KeyGeneratorAsync<PrivKey: PrivateKey>: KeyGenerator {
     ///     .generate_async();
     /// ```
     fn generate_async(self) -> impl Future<Output = crate::Result<PrivKey>>;
+}
+
+pub(crate) fn adjust_key_generation_time(unix_timestamp: UnixTimestamp) -> UnixTimestamp {
+    if unix_timestamp.value() < CLOCK_SKEW_KEY_GENERATION {
+        unix_timestamp
+    } else {
+        UnixTimestamp::new(unix_timestamp.value() - CLOCK_SKEW_KEY_GENERATION)
+    }
 }

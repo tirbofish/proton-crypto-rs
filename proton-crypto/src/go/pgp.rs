@@ -16,7 +16,8 @@ pub mod armor;
 pub use armor::*;
 
 use crate::crypto::{
-    DataEncoding, PGPProvider, PGPProviderAsync, PGPProviderSync, SessionKeyAlgorithm,
+    adjust_key_generation_time, adjust_verification_time, DataEncoding, PGPProvider,
+    PGPProviderAsync, PGPProviderSync, SessionKeyAlgorithm,
 };
 use crate::{CryptoClock, UnixTimestamp};
 use std::sync::Arc;
@@ -170,7 +171,10 @@ impl PGPProviderSync for GoPGPProvider {
     }
 
     fn new_decryptor<'a>(&self) -> Self::Decryptor<'a> {
-        GoDecryptor(gopenpgp_sys::Decryptor::new().at_verification_time(self.0.unix_time().value()))
+        GoDecryptor(
+            gopenpgp_sys::Decryptor::new()
+                .at_verification_time(adjust_verification_time(self.0.unix_time()).value()),
+        )
     }
 
     fn new_signer<'a>(&self) -> Self::Signer<'a> {
@@ -178,7 +182,10 @@ impl PGPProviderSync for GoPGPProvider {
     }
 
     fn new_verifier<'a>(&self) -> Self::Verifier<'a> {
-        GoVerifier(gopenpgp_sys::Verifier::new().at_verification_time(self.0.unix_time().value()))
+        GoVerifier(
+            gopenpgp_sys::Verifier::new()
+                .at_verification_time(adjust_verification_time(self.0.unix_time()).value()),
+        )
     }
 
     fn armorer(&self) -> Self::Armorer {
@@ -187,7 +194,8 @@ impl PGPProviderSync for GoPGPProvider {
 
     fn new_key_generator(&self) -> Self::KeyGenerator {
         GoKeyGenerator(
-            gopenpgp_sys::KeyGenerator::new().with_generation_time(self.0.unix_time().value()),
+            gopenpgp_sys::KeyGenerator::new()
+                .with_generation_time(adjust_key_generation_time(self.0.unix_time()).value()),
         )
     }
 }
@@ -287,25 +295,23 @@ impl PGPProviderAsync for GoPGPProvider {
     }
 
     fn new_encryptor_async<'a>(&self) -> Self::Encryptor<'a> {
-        GoEncryptor(gopenpgp_sys::Encryptor::new().at_signing_time(self.0.unix_time().value()))
+        self.new_encryptor()
     }
 
     fn new_decryptor_async<'a>(&self) -> Self::Decryptor<'a> {
-        GoDecryptor(gopenpgp_sys::Decryptor::new().at_verification_time(self.0.unix_time().value()))
+        self.new_decryptor()
     }
 
     fn new_signer_async<'a>(&self) -> Self::Signer<'a> {
-        GoSigner(gopenpgp_sys::Signer::new().at_signing_time(self.0.unix_time().value()))
+        self.new_signer()
     }
 
     fn new_verifier_async<'a>(&self) -> Self::Verifier<'a> {
-        GoVerifier(gopenpgp_sys::Verifier::new().at_verification_time(self.0.unix_time().value()))
+        self.new_verifier()
     }
 
     fn new_key_generator_async(&self) -> Self::KeyGenerator {
-        GoKeyGenerator(
-            gopenpgp_sys::KeyGenerator::new().with_generation_time(self.0.unix_time().value()),
-        )
+        self.new_key_generator()
     }
 }
 

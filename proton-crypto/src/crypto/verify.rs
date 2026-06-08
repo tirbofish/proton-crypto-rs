@@ -1,6 +1,6 @@
 use std::{future::Future, io};
 
-use crate::crypto::VerificationError;
+use crate::crypto::{VerificationError, CLOCK_SKEW_VERIFICATION};
 
 use super::{AsPublicKeyRef, DataEncoding, PublicKey, UnixTimestamp, VerificationResult};
 
@@ -219,4 +219,12 @@ pub trait VerifierAsync<'a>: Verifier<'a> {
         self,
         message: impl AsRef<[u8]>,
     ) -> impl Future<Output = crate::Result<Self::VerifiedData>>;
+}
+
+pub(crate) fn adjust_verification_time(unix_timestamp: UnixTimestamp) -> UnixTimestamp {
+    if unix_timestamp.value().wrapping_add(CLOCK_SKEW_VERIFICATION) < unix_timestamp.value() {
+        unix_timestamp
+    } else {
+        UnixTimestamp::new(unix_timestamp.value() + CLOCK_SKEW_VERIFICATION)
+    }
 }
