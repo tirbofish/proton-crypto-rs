@@ -172,6 +172,92 @@ pub fn sign_create_text_signature_with_non_utf8_data_should_fail() {
 
 #[test]
 #[allow(clippy::missing_panics_doc)]
+pub fn sign_text_signature_normalizes_line_endings_but_not_trailing_spaces() {
+    let date = UnixTime::new(1_752_476_259);
+    let lf_data = b"line one\nline two\n";
+    let crlf_data = b"line one\r\nline two\r\n";
+
+    let key = PrivateKey::import_unlocked(TEST_KEY.as_bytes(), DataEncoding::Armored)
+        .expect("Failed to import key");
+
+    let signature_bytes = Signer::default()
+        .with_signing_key(&key)
+        .at_date(date.into())
+        .as_utf8()
+        .sign_detached(lf_data, DataEncoding::Armored)
+        .expect("Failed to sign");
+
+    assert!(Verifier::default()
+        .with_verification_key(key.as_public_key())
+        .at_date(date.into())
+        .verify_detached(lf_data, &signature_bytes, DataEncoding::Armored)
+        .is_ok());
+
+    assert!(Verifier::default()
+        .with_verification_key(key.as_public_key())
+        .at_date(date.into())
+        .verify_detached(crlf_data, &signature_bytes, DataEncoding::Armored)
+        .is_ok());
+
+    assert!(Verifier::default()
+        .with_verification_key(key.as_public_key())
+        .at_date(date.into())
+        .verify_detached(
+            b"line one   \nline two\n",
+            &signature_bytes,
+            DataEncoding::Armored
+        )
+        .is_err());
+}
+
+#[test]
+#[allow(clippy::missing_panics_doc)]
+pub fn sign_text_vs_binary_signature_type_matrix() {
+    let date = UnixTime::new(1_752_476_259);
+    let lf_data = b"line one\nline two\n";
+    let crlf_data = b"line one\r\nline two\r\n";
+
+    let key = PrivateKey::import_unlocked(TEST_KEY.as_bytes(), DataEncoding::Armored)
+        .expect("Failed to import key");
+
+    let text_signature = Signer::default()
+        .with_signing_key(&key)
+        .at_date(date.into())
+        .as_utf8()
+        .sign_detached(lf_data, DataEncoding::Armored)
+        .expect("Failed to sign");
+
+    assert!(Verifier::default()
+        .with_verification_key(key.as_public_key())
+        .at_date(date.into())
+        .verify_detached(lf_data, &text_signature, DataEncoding::Armored)
+        .is_ok());
+    assert!(Verifier::default()
+        .with_verification_key(key.as_public_key())
+        .at_date(date.into())
+        .verify_detached(crlf_data, &text_signature, DataEncoding::Armored)
+        .is_ok());
+
+    let binary_signature = Signer::default()
+        .with_signing_key(&key)
+        .at_date(date.into())
+        .sign_detached(lf_data, DataEncoding::Armored)
+        .expect("Failed to sign");
+
+    assert!(Verifier::default()
+        .with_verification_key(key.as_public_key())
+        .at_date(date.into())
+        .verify_detached(lf_data, &binary_signature, DataEncoding::Armored)
+        .is_ok());
+    assert!(Verifier::default()
+        .with_verification_key(key.as_public_key())
+        .at_date(date.into())
+        .verify_detached(crlf_data, &binary_signature, DataEncoding::Armored)
+        .is_err());
+}
+
+#[test]
+#[allow(clippy::missing_panics_doc)]
 pub fn sign_create_detached_signature_v6_pqc() {
     const KEY: &str = include_str!("../test-data/keys/private_key_v6_pqc.asc");
     let input_data = b"hello world";
@@ -193,6 +279,28 @@ pub fn sign_create_detached_signature_v6_pqc() {
         .verify_detached(input_data, &signature_bytes, DataEncoding::Armored);
 
     assert!(verification_result.is_ok());
+}
+
+#[test]
+#[allow(clippy::missing_panics_doc)]
+pub fn sign_before_key_creation_fails() {
+    let key = PrivateKey::import_unlocked(TEST_KEY.as_bytes(), DataEncoding::Armored)
+        .expect("Failed to import key");
+
+    let before_creation = Signer::default()
+        .with_signing_key(&key)
+        .at_date(UnixTime::new(1_000_000_000).into())
+        .sign_detached(b"hello world", DataEncoding::Armored);
+    assert!(matches!(
+        before_creation,
+        Err(Error::Signing(SigningError::KeySelection(_)))
+    ));
+
+    let after_creation = Signer::default()
+        .with_signing_key(&key)
+        .at_date(UnixTime::new(1_752_476_259).into())
+        .sign_detached(b"hello world", DataEncoding::Armored);
+    assert!(after_creation.is_ok());
 }
 
 #[test]
@@ -376,6 +484,35 @@ pub fn sign_verify_inline_cleartext_message_v4() {
         result.verification_result,
         Err(VerificationError::NoVerifier(_, _))
     ));
+}
+
+#[test]
+#[allow(clippy::missing_panics_doc)]
+pub fn sign_verify_cleartext_message_detects_modification() {
+    let input_data = "hello world\n hello\n";
+
+    let key = PrivateKey::import_unlocked(TEST_KEY.as_bytes(), DataEncoding::Armored)
+        .expect("Failed to import key");
+
+    let message = Signer::default()
+        .with_signing_key(&key)
+        .sign_cleartext(input_data.as_bytes())
+        .expect("Failed to sign");
+
+    // Tamper with the signed text inside the cleartext message.
+    let message_str = String::from_utf8(message).expect("cleartext message is utf-8");
+    let tampered = message_str.replacen("hello world", "hello earth", 1);
+    assert_ne!(tampered, message_str);
+
+    let verified_data = Verifier::default()
+        .with_verification_key(key.as_public_key())
+        .verify_cleartext(&tampered)
+        .expect("Failed to verify");
+
+    assert!(
+        verified_data.verification_result.is_err(),
+        "Verification of a tampered cleartext message must fail"
+    );
 }
 
 #[test]

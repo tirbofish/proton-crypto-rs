@@ -66,3 +66,21 @@ fn test_unarmor_invalid_input() {
         Err(Error::Armor(ArmorError::DecodeHeader))
     ));
 }
+
+const REAL_PUBLIC_KEY: &str = include_str!("../test-data/keys/public_key_v4.asc");
+
+#[test]
+fn test_unarmor_tolerates_comment_and_version_headers() {
+    let baseline = unarmor(REAL_PUBLIC_KEY.as_bytes()).expect("unarmor baseline failed");
+
+    // Insert armor headers between the BEGIN line and the blank separator line.
+    let with_headers = REAL_PUBLIC_KEY.replacen(
+        "-----BEGIN PGP PUBLIC KEY BLOCK-----\n",
+        "-----BEGIN PGP PUBLIC KEY BLOCK-----\nComment: https://protonmail.com\nVersion: ProtonMail\n",
+        1,
+    );
+    assert_ne!(with_headers, REAL_PUBLIC_KEY);
+
+    let unarmored = unarmor(with_headers.as_bytes()).expect("unarmor with headers failed");
+    assert_eq!(unarmored, baseline);
+}
