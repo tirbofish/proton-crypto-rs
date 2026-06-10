@@ -20,11 +20,22 @@ pub use keygen::*;
 
 use std::sync::{Arc, LazyLock};
 
+use crate::AeadCiphersuite;
+
 /// AEAD ciphersuite.
 pub type Ciphersuite = (SymmetricKeyAlgorithm, AeadAlgorithm);
 
 /// The default profile.
 pub static DEFAULT_PROFILE: LazyLock<Profile> = LazyLock::new(Profile::default);
+
+/// A profile with AEAD enabled, meaning using AEAD (`SEIPDv2`, RFC 9580) encryption if possbile.
+///
+/// DANGER: Only use this profile if backward compatibility is not an issue.
+pub static AEAD_PROFILE: LazyLock<Profile> = LazyLock::new(|| {
+    ProfileSettings::builder()
+        .preferred_aead_ciphersuite(Some(AeadCiphersuite::default().into()))
+        .build_into_profile()
+});
 
 #[derive(Debug, Clone)]
 pub struct Profile {
@@ -159,6 +170,17 @@ impl Profile {
 
     pub fn max_s2k_trials_per_passphrase(&self) -> Option<usize> {
         self.settings.max_s2k_trials_per_passphrase
+    }
+
+    pub(crate) fn default_key_generation_profile(&self) -> KeyGenerationProfileBuilder {
+        if self.message_aead_cipher_suite().is_some() {
+            // Signal support for SEIPD v2 if the profile prefers AEAD.
+            KeyGenerationProfileBuilder::default()
+                .with_preferred_aead_algorithms_default()
+                .seipd_v2(true)
+        } else {
+            KeyGenerationProfileBuilder::default()
+        }
     }
 }
 

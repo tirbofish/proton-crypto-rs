@@ -8,7 +8,7 @@ use pgp::{
 };
 use smallvec::SmallVec;
 
-use crate::{KeyDetailsConfig, PREFERRED_SYMMETRIC_KEY_ALGORITHMS};
+use crate::{KeyDetailsConfig, Profile, PREFERRED_SYMMETRIC_KEY_ALGORITHMS};
 
 pub const PREFERRED_KEY_GEN_HASH_ALGORITHMS: &[HashAlgorithm] =
     &[HashAlgorithm::Sha512, HashAlgorithm::Sha256];
@@ -16,6 +16,13 @@ pub const PREFERRED_KEY_GEN_HASH_ALGORITHMS: &[HashAlgorithm] =
 pub const PREFERRED_KEY_GEN_COMPRESSION_ALGORITHMS: &[CompressionAlgorithm] = &[
     CompressionAlgorithm::Uncompressed,
     CompressionAlgorithm::ZLIB,
+];
+
+pub const PREFERRED_KEY_GEN_AEAD_CIPHERSUITES: &[(SymmetricKeyAlgorithm, AeadAlgorithm)] = &[
+    (SymmetricKeyAlgorithm::AES256, AeadAlgorithm::Gcm),
+    (SymmetricKeyAlgorithm::AES256, AeadAlgorithm::Ocb),
+    (SymmetricKeyAlgorithm::AES128, AeadAlgorithm::Gcm),
+    (SymmetricKeyAlgorithm::AES128, AeadAlgorithm::Ocb),
 ];
 
 /// The algorithm type to use for the key generation.
@@ -49,10 +56,13 @@ impl KeyGenerationType {
         }
     }
 
-    pub(crate) fn key_generation_profile(self) -> KeyGenerationProfile {
+    pub(crate) fn key_generation_profile(self, profile: &Profile) -> KeyGenerationProfile {
         match self {
-            KeyGenerationType::RSA | KeyGenerationType::ECC => KeyGenerationProfile::default(),
-            KeyGenerationType::PQC => KeyGenerationProfileBuilder::default()
+            KeyGenerationType::RSA | KeyGenerationType::ECC => {
+                profile.default_key_generation_profile().build()
+            }
+            KeyGenerationType::PQC => profile
+                .default_key_generation_profile()
                 .key_version(KeyVersion::V6)
                 .build(),
         }
@@ -165,6 +175,11 @@ impl KeyGenerationProfileBuilder {
         aeads: impl Into<SmallVec<[(SymmetricKeyAlgorithm, AeadAlgorithm); 4]>>,
     ) -> Self {
         self.profile.preferred_aead_ciphersuites = aeads.into();
+        self
+    }
+
+    pub fn with_preferred_aead_algorithms_default(mut self) -> Self {
+        self.profile.preferred_aead_ciphersuites = PREFERRED_KEY_GEN_AEAD_CIPHERSUITES.into();
         self
     }
 
