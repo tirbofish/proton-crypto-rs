@@ -54,7 +54,8 @@ impl RecipientsAlgorithms {
         let mut candidate_compression_algorithms =
             profile.candidate_compression_algorithms().to_vec();
         let mut candidate_aead_algorithms = profile.candidate_aead_ciphersuites().to_vec();
-        let mut aead_support = true;
+        // We only allow AEAD encryption if the encryptor specifies an AEAD algorithm.
+        let mut aead_support = message_cipher_suite.is_some();
 
         // Intersect the candidate algorithms with the preferences of the recipients.
         for key in keys {
@@ -102,36 +103,30 @@ impl RecipientsAlgorithms {
                 .unwrap_or(CompressionAlgorithm::Uncompressed)
         };
 
-        let aead_algorithm = if candidate_aead_algorithms
-            .iter()
-            .any(|alg| Some(alg) == message_cipher_suite.as_ref())
-        {
-            message_cipher_suite
+        // Select the AEAD ciphersuite to use if all recipients support AEAD, i.e, support_seipdv2 is true.
+        let aead_ciphersuite = if aead_support {
+            Some(
+                message_cipher_suite
+                    .filter(|suite| candidate_aead_algorithms.contains(suite))
+                    .or(candidate_aead_algorithms.first().copied())
+                    .unwrap_or((SymmetricKeyAlgorithm::AES256, AeadAlgorithm::Gcm)),
+            )
         } else {
-            // If the profile does not specify an AEAD algorithm,
-            // we do not perform AEAD encryption.
-            message_cipher_suite.map(|_| {
-                candidate_aead_algorithms
-                    .into_iter()
-                    .next()
-                    .unwrap_or((SymmetricKeyAlgorithm::AES128, AeadAlgorithm::Ocb))
-            })
+            None
         };
 
         Self {
             signing_hash_candidates: candidate_hashes_to_sign,
             compression_algorithm,
             symmetric_algorithm,
-            aead_ciphersuite: aead_algorithm,
+            aead_ciphersuite,
             support_seipdv2: aead_support,
         }
     }
 
     pub fn encryption_mechanism(&self) -> EncryptionMechanism {
         match (self.support_seipdv2, self.aead_ciphersuite) {
-            (true, Some((symmetric_algorithm, aead_algorithm))) => {
-                EncryptionMechanism::SeipdV2(symmetric_algorithm, aead_algorithm)
-            }
+            (true, Some((sym, aead))) => EncryptionMechanism::SeipdV2(sym, aead),
             _ => EncryptionMechanism::SeipdV1(self.symmetric_algorithm),
         }
     }

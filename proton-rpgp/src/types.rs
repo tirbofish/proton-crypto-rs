@@ -6,11 +6,12 @@ use std::{
 };
 
 use pgp::{
+    crypto::{aead::AeadAlgorithm, sym::SymmetricKeyAlgorithm},
     packet::KeyFlags,
     types::{Fingerprint, KeyId, Password, Timestamp},
 };
 
-use crate::{armor, FingerprintError};
+use crate::{armor, Ciphersuite, FingerprintError};
 
 /// Possible encodings of an `OpenPGP` message.
 ///
@@ -473,5 +474,36 @@ impl FingerprintExt for Fingerprint {
             }
             _ => None,
         }
+    }
+}
+
+/// Defines an `OpenPGP` AEAD cipher suite.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AeadCiphersuite(pub Ciphersuite);
+
+impl AeadCiphersuite {
+    pub fn new(
+        symmetric_key_algorithm: SymmetricKeyAlgorithm,
+        aead_algorithm: AeadAlgorithm,
+    ) -> Self {
+        Self((symmetric_key_algorithm, aead_algorithm))
+    }
+}
+
+impl From<Ciphersuite> for AeadCiphersuite {
+    fn from(value: Ciphersuite) -> Self {
+        Self(value)
+    }
+}
+
+impl From<AeadCiphersuite> for Ciphersuite {
+    fn from(value: AeadCiphersuite) -> Self {
+        value.0
+    }
+}
+
+impl Default for AeadCiphersuite {
+    fn default() -> Self {
+        Self((SymmetricKeyAlgorithm::AES256, AeadAlgorithm::Gcm))
     }
 }

@@ -568,6 +568,14 @@ impl SessionKey {
         }
     }
 
+    /// Indicates if the session key is for AEAD encryption with `OpenPGP` (`SEIPDv2` RFC9580).
+    ///
+    /// A session key is marked as AEAD use if extracted from a v6 PKESK packet or
+    /// if it is explicitly imported/generated as AEAD.
+    pub fn is_seipdv2_aead(&self) -> bool {
+        matches!(&self.inner, PlainSessionKey::V6 { .. })
+    }
+
     pub(crate) fn as_raw_session_key(&self) -> &RawSessionKey {
         match &self.inner {
             PlainSessionKey::V3_4 { key, .. }
@@ -587,13 +595,16 @@ impl SessionKey {
         match &self.inner {
             PlainSessionKey::V3_4 { sym_alg, .. } => Ok(EncryptionMechanism::SeipdV1(*sym_alg)),
             PlainSessionKey::V6 { key } => {
-                let (symmetric_algorithm, aead_algorithm) = recipients_algo
-                    .aead_ciphersuite
-                    .filter(|c| c.0.key_size() == key.len())
-                    .or_else(|| profile.fallback_ciphersuite_for_key_length(key.len()))
-                    .ok_or(EncryptionError::NotSupported(
-                        "missing aead algorithm for v6 session key".to_owned(),
-                    ))?;
+                let (symmetric_algorithm, aead_algorithm) = match recipients_algo.aead_ciphersuite {
+                    Some(aead_ciphersuite) if aead_ciphersuite.0.key_size() == key.len() => {
+                        aead_ciphersuite
+                    }
+                    _ => profile
+                        .fallback_ciphersuite_for_key_length(key.len())
+                        .ok_or(EncryptionError::NotSupported(
+                            "missing aead algorithm for v6 session key".to_owned(),
+                        ))?,
+                };
 
                 Ok(EncryptionMechanism::SeipdV2(
                     symmetric_algorithm,

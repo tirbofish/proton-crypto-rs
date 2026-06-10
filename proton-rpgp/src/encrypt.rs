@@ -18,7 +18,7 @@ use rand::{CryptoRng, Rng};
 
 use crate::{
     preferences::{EncryptionMechanism, RecipientsAlgorithms},
-    CheckUnixTime, Ciphersuite, CloneablePasswords, DataEncoding, EncryptionError,
+    AeadCiphersuite, CheckUnixTime, Ciphersuite, CloneablePasswords, DataEncoding, EncryptionError,
     ExternalDetachedSignature, ExternalHashTracker, KeyValidationError, PrivateComponentKey,
     PrivateKey, Profile, PublicComponentKey, PublicKey, PublicKeySelectionExt,
     ResolvedDataEncoding, SessionKey, SignatureContext, Signer, SigningError, DEFAULT_PROFILE,
@@ -179,6 +179,19 @@ impl<'a> Encryptor<'a> {
     /// Compression affects security and should be used with care.
     pub fn compress(mut self) -> Self {
         self.message_compression = CompressionAlgorithm::ZLIB;
+        self
+    }
+
+    /// Enables AEAD (`SEIPDv2`, RFC 9580) encryption using the specified ciphersuite if provided.
+    ///
+    /// This function overrides the profile selection.
+    /// If `None` is provided, the encryptor will not use AEAD encryption.
+    /// If a ciphersuite is provided, the encryptor will use the specified ciphersuite for AEAD encryption.
+    /// In this case, if all encryption keys indicated `SEIPDv2` support,
+    /// the encryptor encrypts with AEAD (`SEIPDv2` RFC9580) or generates an AEAD (`SEIPDv2` RFC9580) session key.
+    /// If a session key is provided, the encryptor will use the specified type in the session key and ignore the ciphersuite provided.
+    pub fn with_aead(mut self, ciphersuite: Option<AeadCiphersuite>) -> Self {
+        self.message_cipher_suite = ciphersuite.map(Into::into);
         self
     }
 

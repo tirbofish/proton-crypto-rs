@@ -3,10 +3,10 @@ use std::sync::{Arc, LazyLock};
 use pgp::crypto::{aead::AeadAlgorithm, hash::HashAlgorithm, sym::SymmetricKeyAlgorithm};
 use proton_rpgp::{
     component::{PrivateComponentKeyPublicView, PublicComponentKey},
-    AccessKeyInfo, AsPublicKeyRef, DataEncoding, DecryptionError, Decryptor, EncryptedMessage,
-    EncryptedMessageInfo, EncryptionError, EncryptionMechanism, EncryptionObserver, Encryptor,
-    Error, KeyGenerator, PrivateKey, Profile, ProfileSettings, PublicKey, SessionKey,
-    StringToKeyOption, UnixTime, VerificationError,
+    AccessKeyInfo, AeadCiphersuite, AsPublicKeyRef, DataEncoding, DecryptionError, Decryptor,
+    EncryptedMessage, EncryptedMessageInfo, EncryptionError, EncryptionMechanism,
+    EncryptionObserver, Encryptor, Error, KeyGenerator, PrivateKey, Profile, ProfileSettings,
+    PublicKey, SessionKey, StringToKeyOption, UnixTime, VerificationError, AEAD_PROFILE,
 };
 
 mod utils;
@@ -1314,4 +1314,251 @@ fn has_compression(encrypted_message: &[u8], session_key_bytes: &[u8]) -> bool {
         .expect("Failed to decrypt message");
 
     matches!(decrypted, Message::Compressed { .. })
+}
+
+const TEST_PRIVATE_KEY_WITH_AEAD: &str =
+    include_str!("../test-data/keys/locked_private_key_v4_seipdv2.asc");
+
+const TEST_PRIVATE_KEY_WITHOUT_AEAD: &str =
+    include_str!("../test-data/keys/locked_private_key_v4_no_seipdv2.asc");
+
+const TEST_PRIVATE_KEY_AEAD_PASSWORD: &[u8] = b"password";
+
+#[test]
+#[allow(clippy::indexing_slicing)]
+#[allow(clippy::missing_panics_doc)]
+fn aead_seipdv2_encryption_with_session_key() {
+    // Key with SEIPDv2 flag.
+    let key_aead = PrivateKey::import(
+        TEST_PRIVATE_KEY_WITH_AEAD.as_bytes(),
+        TEST_PRIVATE_KEY_AEAD_PASSWORD,
+        DataEncoding::Armored,
+    )
+    .expect("Failed to import key");
+
+    // Key without SEIPDv2 flag.
+    let key = PrivateKey::import(
+        TEST_PRIVATE_KEY_WITHOUT_AEAD.as_bytes(),
+        TEST_PRIVATE_KEY_AEAD_PASSWORD,
+        DataEncoding::Armored,
+    )
+    .expect("Failed to import key");
+
+    let content = b"hello";
+
+    // The AEAD key advertises SEIPDv2 support, so the generated session key is an AEAD session key.
+    let sk_aead = Encryptor::default()
+        .with_aead(Some(AeadCiphersuite::default()))
+        .with_encryption_key(key_aead.as_public_key())
+        .generate_session_key()
+        .expect("Failed to generate session key");
+    assert!(sk_aead.is_seipdv2_aead());
+
+    // If AEAD is not enabled, the session key should not be an AEAD with a default profile.
+    let sk_should_not_be_aead = Encryptor::default()
+        .with_encryption_key(key_aead.as_public_key())
+        .generate_session_key()
+        .expect("Failed to generate session key");
+    assert!(!sk_should_not_be_aead.is_seipdv2_aead());
+
+    // The non-AEAD key does not advertise SEIPDv2 support, so AEAD is not used.
+    let sk = Encryptor::default()
+        .with_aead(Some(AeadCiphersuite::default()))
+        .with_encryption_key(key.as_public_key())
+        .generate_session_key()
+        .expect("Failed to generate session key");
+    assert!(!sk.is_seipdv2_aead());
+
+    let mut key_packet_aead = Encryptor::default()
+        .with_encryption_key(key_aead.as_public_key())
+        .encrypt_session_key(&sk_aead)
+        .expect("encrypt session key failed");
+    let key_packet = Encryptor::default()
+        .with_encryption_key(key.as_public_key())
+        .encrypt_session_key(&sk)
+        .expect("encrypt session key failed");
+
+    let session_key_decrypted_aead = Decryptor::default()
+        .with_decryption_key(&key_aead)
+        .decrypt_session_key(&key_packet_aead)
+        .expect("Failed to decrypt session key");
+
+    // An AEAD session key is always encrypted into a PKESKv6 packet, independent of the recipient.
+    let key_packet_pkeskv6 = Encryptor::default()
+        .with_encryption_key(key.as_public_key())
+        .encrypt_session_key(&session_key_decrypted_aead)
+        .expect("encrypt session key failed");
+    assert_eq!(key_packet_pkeskv6[2], 6); // PKESKv6
+
+    let key_packet_pkeskv6 = Encryptor::default()
+        .with_encryption_key(key_aead.as_public_key())
+        .encrypt_session_key(&session_key_decrypted_aead)
+        .expect("encrypt session key failed");
+    assert_eq!(key_packet_pkeskv6[2], 6); // PKESKv6
+
+    let data_packet_aead = Encryptor::default()
+        .with_session_key(&sk_aead)
+        .encrypt_raw(content, DataEncoding::Unarmored)
+        .expect("encryption failed");
+    let data_packet = Encryptor::default()
+        .with_session_key(&sk)
+        .encrypt_raw(content, DataEncoding::Unarmored)
+        .expect("encryption failed");
+
+    key_packet_aead.extend_from_slice(&data_packet_aead);
+
+    // Check decryption.
+    let output = Decryptor::default()
+        .with_decryption_key(&key_aead)
+        .decrypt(&key_packet_aead, DataEncoding::Unarmored)
+        .expect("decryption failed");
+    assert_eq!(output.data, content);
+
+    // Check packets.
+    assert_eq!(key_packet_aead[2], 6); // PKESKv6
+    assert_eq!(data_packet_aead[2], 2); // SEIPDv2
+    assert_eq!(key_packet[2], 3); // PKESKv3
+    assert_eq!(data_packet[2], 1); // SEIPDv1
+}
+
+#[test]
+#[allow(clippy::indexing_slicing)]
+#[allow(clippy::missing_panics_doc)]
+fn aead_seipdv2_encryption_with_aead_profile() {
+    // Key with SEIPDv2 flag.
+    let key_aead = PrivateKey::import(
+        TEST_PRIVATE_KEY_WITH_AEAD.as_bytes(),
+        TEST_PRIVATE_KEY_AEAD_PASSWORD,
+        DataEncoding::Armored,
+    )
+    .expect("Failed to import key");
+
+    // Key without SEIPDv2 flag.
+    let key = PrivateKey::import(
+        TEST_PRIVATE_KEY_WITHOUT_AEAD.as_bytes(),
+        TEST_PRIVATE_KEY_AEAD_PASSWORD,
+        DataEncoding::Armored,
+    )
+    .expect("Failed to import key");
+
+    let content = b"hello";
+
+    // The AEAD key advertises SEIPDv2 support, so the generated session key is an AEAD session key.
+    let sk_aead = Encryptor::new(AEAD_PROFILE.clone())
+        .with_encryption_key(key_aead.as_public_key())
+        .generate_session_key()
+        .expect("Failed to generate session key");
+    assert!(sk_aead.is_seipdv2_aead());
+
+    // If AEAD is not enabled, the session key should not be an AEAD with a default profile.
+    let sk_should_not_be_aead = Encryptor::default()
+        .with_encryption_key(key_aead.as_public_key())
+        .generate_session_key()
+        .expect("Failed to generate session key");
+    assert!(!sk_should_not_be_aead.is_seipdv2_aead());
+
+    // The non-AEAD key does not advertise SEIPDv2 support, so AEAD is not used.
+    let sk = Encryptor::new(AEAD_PROFILE.clone())
+        .with_encryption_key(key.as_public_key())
+        .generate_session_key()
+        .expect("Failed to generate session key");
+    assert!(!sk.is_seipdv2_aead());
+
+    let mut key_packet_aead = Encryptor::default()
+        .with_encryption_key(key_aead.as_public_key())
+        .encrypt_session_key(&sk_aead)
+        .expect("encrypt session key failed");
+    let key_packet = Encryptor::default()
+        .with_encryption_key(key.as_public_key())
+        .encrypt_session_key(&sk)
+        .expect("encrypt session key failed");
+
+    let session_key_decrypted_aead = Decryptor::default()
+        .with_decryption_key(&key_aead)
+        .decrypt_session_key(&key_packet_aead)
+        .expect("Failed to decrypt session key");
+
+    // An AEAD session key is always encrypted into a PKESKv6 packet, independent of the recipient.
+    let key_packet_pkeskv6 = Encryptor::default()
+        .with_encryption_key(key.as_public_key())
+        .encrypt_session_key(&session_key_decrypted_aead)
+        .expect("encrypt session key failed");
+    assert_eq!(key_packet_pkeskv6[2], 6); // PKESKv6
+
+    let key_packet_pkeskv6 = Encryptor::default()
+        .with_encryption_key(key_aead.as_public_key())
+        .encrypt_session_key(&session_key_decrypted_aead)
+        .expect("encrypt session key failed");
+    assert_eq!(key_packet_pkeskv6[2], 6); // PKESKv6
+
+    let data_packet_aead = Encryptor::default()
+        .with_session_key(&sk_aead)
+        .encrypt_raw(content, DataEncoding::Unarmored)
+        .expect("encryption failed");
+    let data_packet = Encryptor::default()
+        .with_session_key(&sk)
+        .encrypt_raw(content, DataEncoding::Unarmored)
+        .expect("encryption failed");
+
+    key_packet_aead.extend_from_slice(&data_packet_aead);
+
+    // Check decryption.
+    let output = Decryptor::default()
+        .with_decryption_key(&key_aead)
+        .decrypt(&key_packet_aead, DataEncoding::Unarmored)
+        .expect("decryption failed");
+    assert_eq!(output.data, content);
+
+    // Check packets.
+    assert_eq!(key_packet_aead[2], 6); // PKESKv6
+    assert_eq!(data_packet_aead[2], 2); // SEIPDv2
+    assert_eq!(key_packet[2], 3); // PKESKv3
+    assert_eq!(data_packet[2], 1); // SEIPDv1
+}
+
+#[test]
+#[allow(clippy::indexing_slicing)]
+#[allow(clippy::missing_panics_doc)]
+fn aead_seipd_v2_encryption_with_session_key_import() {
+    // Key without SEIPDv2 flag.
+    let key = PrivateKey::import(
+        TEST_PRIVATE_KEY_WITHOUT_AEAD.as_bytes(),
+        TEST_PRIVATE_KEY_AEAD_PASSWORD,
+        DataEncoding::Armored,
+    )
+    .expect("Failed to import key");
+
+    let dummy_sk =
+        SessionKey::generate_for_seipdv1(SymmetricKeyAlgorithm::AES256, &Profile::default());
+    let content = b"hello";
+
+    let exported = dummy_sk.export_bytes();
+
+    // The session key encodes AEAD and forces it independent of the profile.
+    let sk_aead = SessionKey::new_for_seipdv2(exported.as_ref());
+    let sk = SessionKey::new(exported.as_ref(), SymmetricKeyAlgorithm::AES256);
+
+    let key_packet_aead = Encryptor::default()
+        .with_encryption_key(key.as_public_key())
+        .encrypt_session_key(&sk_aead)
+        .expect("encrypt session key failed");
+    let key_packet = Encryptor::default()
+        .with_encryption_key(key.as_public_key())
+        .encrypt_session_key(&sk)
+        .expect("encrypt session key failed");
+
+    let data_packet_aead = Encryptor::default()
+        .with_session_key(&sk_aead)
+        .encrypt_raw(content, DataEncoding::Unarmored)
+        .expect("encryption failed");
+    let data_packet = Encryptor::default()
+        .with_session_key(&sk)
+        .encrypt_raw(content, DataEncoding::Unarmored)
+        .expect("encryption failed");
+
+    // Check packets.
+    assert_eq!(key_packet_aead[2], 6); // PKESKv6
+    assert_eq!(data_packet_aead[2], 2); // SEIPDv2
+    assert_eq!(key_packet[2], 3); // PKESKv3
+    assert_eq!(data_packet[2], 1); // SEIPDv1
 }
