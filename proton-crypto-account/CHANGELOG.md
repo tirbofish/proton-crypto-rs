@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - 2025-00-00
 
+## [0.19.1] - 2026-06-12
+
+### Changed
+
+- Bumped `facet` to `0.44`.
+- Update `proton-crypto` to `0.13.1`.
+
 ## [0.19.0] - 2026-06-05
 
 ### Changed
