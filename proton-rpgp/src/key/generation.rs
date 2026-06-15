@@ -242,7 +242,7 @@ mod tests {
     };
 
     use crate::{
-        AccessKeyInfo, DataEncoding, SignatureExt, AEAD_PROFILE,
+        AccessKeyInfo, DataEncoding, SignatureExt, HAZARD_AEAD_PROFILE,
         PREFERRED_KEY_GEN_AEAD_CIPHERSUITES,
     };
 
@@ -304,7 +304,7 @@ mod tests {
     fn test_key_generation_details_v4_with_aead() {
         let date = UnixTime::new(1_756_196_260);
 
-        let key = KeyGenerator::new(AEAD_PROFILE.clone())
+        let key = KeyGenerator::new(HAZARD_AEAD_PROFILE.clone())
             .with_user_id("test", "test@test.test")
             .with_key_type(KeyGenerationType::ECC)
             .at_date(date)

@@ -178,7 +178,7 @@ impl Default for ProfileSettings {
                 hash_alg: HashAlgorithm::Sha256,
                 count: 224,
             },
-            aead_chunk_size: ChunkSize::C4MiB,
+            aead_chunk_size: ChunkSize::C256KiB,
             key_encryption_s2k_params: StringToKeyOption::IteratedAndSalted {
                 sym_alg: SymmetricKeyAlgorithm::AES256,
                 hash_alg: HashAlgorithm::Sha256,
