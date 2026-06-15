@@ -10,7 +10,10 @@ use pgp::{
         ArmorOptions, Encryption, EncryptionSeipdV1, EncryptionSeipdV2, MessageBuilder,
         NoEncryption, RawSessionKey,
     },
-    crypto::{aead::AeadAlgorithm, sym::SymmetricKeyAlgorithm},
+    crypto::{
+        aead::{AeadAlgorithm, ChunkSize},
+        sym::SymmetricKeyAlgorithm,
+    },
     packet::{DataMode, PacketTrait, PublicKeyEncryptedSessionKey, SymKeyEncryptedSessionKey},
     types::{CompressionAlgorithm, KeyDetails, KeyVersion, Password},
 };
@@ -48,7 +51,10 @@ pub struct Encryptor<'a> {
     message_symmetric_algorithm: SymmetricKeyAlgorithm,
 
     /// Message AEAD cipher suite preference.
-    message_cipher_suite: Option<Ciphersuite>,
+    message_aead_cipher_suite: Option<Ciphersuite>,
+
+    /// Message AEAD chunk size preference.
+    message_aead_chunk_size: ChunkSize,
 
     /// Determines if a detached signature should be created.
     detached_signature_op: SignDetachedOperation,
@@ -69,7 +75,8 @@ impl<'a> Encryptor<'a> {
             session_key: None,
             message_compression: profile.message_compression(),
             message_symmetric_algorithm: profile.message_symmetric_algorithm(),
-            message_cipher_suite: profile.message_aead_cipher_suite(),
+            message_aead_cipher_suite: profile.message_aead_cipher_suite(),
+            message_aead_chunk_size: profile.message_aead_chunk_size(),
             detached_signature_op: SignDetachedOperation::default(),
             observer: None,
             signer: Signer::new(profile),
@@ -184,14 +191,24 @@ impl<'a> Encryptor<'a> {
 
     /// Enables AEAD (`SEIPDv2`, RFC 9580) encryption using the specified ciphersuite if provided.
     ///
-    /// This function overrides the profile selection.
-    /// If `None` is provided, the encryptor will not use AEAD encryption.
+    /// If `None` is provided, the encryptor will not consider AEAD encryption even if the recipients encryption keys support it.
     /// If a ciphersuite is provided, the encryptor will use the specified ciphersuite for AEAD encryption.
-    /// In this case, if all encryption keys indicated `SEIPDv2` support,
+    /// In this case, if all the recipients encryption keys indicated `SEIPDv2` support,
     /// the encryptor encrypts with AEAD (`SEIPDv2` RFC9580) or generates an AEAD (`SEIPDv2` RFC9580) session key.
     /// If a session key is provided, the encryptor will use the specified type in the session key and ignore the ciphersuite provided.
-    pub fn with_aead(mut self, ciphersuite: Option<AeadCiphersuite>) -> Self {
-        self.message_cipher_suite = ciphersuite.map(Into::into);
+    /// For session key generation, if no recipient encryption keys are provided, the encryptor will generate an AEAD
+    /// session key using the ciphersuite provided
+    /// or a default non-AEAD session key if no ciphersuite is provided.
+    pub fn with_aead_allowed(mut self, ciphersuite: Option<AeadCiphersuite>) -> Self {
+        self.message_aead_cipher_suite = ciphersuite.map(Into::into);
+        self
+    }
+
+    /// Allows to override the AEAD chunk size for AEAD-encrypted (`SEIPDv2`, RFC 9580) messages.
+    ///
+    /// Per default the profile is used to determine the AEAD chunk size if used.
+    pub fn with_aead_chunk_size(mut self, chunk_size: ChunkSize) -> Self {
+        self.message_aead_chunk_size = chunk_size;
         self
     }
 
@@ -346,7 +363,7 @@ impl<'a> Encryptor<'a> {
 
         let recipients_algo = RecipientsAlgorithms::select(
             self.message_symmetric_algorithm,
-            self.message_cipher_suite,
+            self.message_aead_cipher_suite,
             self.message_compression,
             &encryption_keys,
             self.profile(),
@@ -440,7 +457,7 @@ impl<'a> Encryptor<'a> {
 
         let recipients_algorithm_selection = RecipientsAlgorithms::select(
             self.message_symmetric_algorithm,
-            self.message_cipher_suite,
+            self.message_aead_cipher_suite,
             self.message_compression,
             &encryption_keys,
             self.profile(),
@@ -474,7 +491,7 @@ impl<'a> Encryptor<'a> {
 
         let recipients_algorithm_selection = RecipientsAlgorithms::select(
             self.message_symmetric_algorithm,
-            self.message_cipher_suite,
+            self.message_aead_cipher_suite,
             self.message_compression,
             &encryption_keys,
             self.profile(),
@@ -532,6 +549,7 @@ impl<'a> Encryptor<'a> {
                     &self.passphrases,
                     symmetric_key_algorithm,
                     aead_algorithm,
+                    self.message_aead_chunk_size,
                     extract_session_key,
                     self.session_key.as_deref(),
                     &mut rng,
@@ -779,6 +797,7 @@ fn create_seipd_v2_message_builder<'b, RAND, R>(
     passphrases: &[Password],
     symmetric_key_algorithm: SymmetricKeyAlgorithm,
     aead_algorithm: AeadAlgorithm,
+    aead_chunk_size: ChunkSize,
     extract_session_key: bool,
     provided_session_key: Option<&SessionKey>,
     mut rng: RAND,
@@ -792,7 +811,7 @@ where
         &mut rng,
         symmetric_key_algorithm,
         aead_algorithm,
-        profile.message_aead_chunk_size(),
+        aead_chunk_size,
     );
 
     if let Some(session_key) = provided_session_key {

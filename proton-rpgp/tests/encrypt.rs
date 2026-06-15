@@ -1,12 +1,19 @@
 use std::sync::{Arc, LazyLock};
 
-use pgp::crypto::{aead::AeadAlgorithm, hash::HashAlgorithm, sym::SymmetricKeyAlgorithm};
+use pgp::{
+    crypto::{
+        aead::{AeadAlgorithm, ChunkSize},
+        hash::HashAlgorithm,
+        sym::SymmetricKeyAlgorithm,
+    },
+    packet::PacketParser,
+};
 use proton_rpgp::{
     component::{PrivateComponentKeyPublicView, PublicComponentKey},
     AccessKeyInfo, AeadCiphersuite, AsPublicKeyRef, DataEncoding, DecryptionError, Decryptor,
     EncryptedMessage, EncryptedMessageInfo, EncryptionError, EncryptionMechanism,
     EncryptionObserver, Encryptor, Error, KeyGenerator, PrivateKey, Profile, ProfileSettings,
-    PublicKey, SessionKey, StringToKeyOption, UnixTime, VerificationError, AEAD_PROFILE,
+    PublicKey, SessionKey, StringToKeyOption, UnixTime, VerificationError, HAZARD_AEAD_PROFILE,
 };
 
 mod utils;
@@ -1348,7 +1355,7 @@ fn aead_seipdv2_encryption_with_session_key() {
 
     // The AEAD key advertises SEIPDv2 support, so the generated session key is an AEAD session key.
     let sk_aead = Encryptor::default()
-        .with_aead(Some(AeadCiphersuite::default()))
+        .with_aead_allowed(Some(AeadCiphersuite::default()))
         .with_encryption_key(key_aead.as_public_key())
         .generate_session_key()
         .expect("Failed to generate session key");
@@ -1363,7 +1370,7 @@ fn aead_seipdv2_encryption_with_session_key() {
 
     // The non-AEAD key does not advertise SEIPDv2 support, so AEAD is not used.
     let sk = Encryptor::default()
-        .with_aead(Some(AeadCiphersuite::default()))
+        .with_aead_allowed(Some(AeadCiphersuite::default()))
         .with_encryption_key(key.as_public_key())
         .generate_session_key()
         .expect("Failed to generate session key");
@@ -1444,7 +1451,7 @@ fn aead_seipdv2_encryption_with_aead_profile() {
     let content = b"hello";
 
     // The AEAD key advertises SEIPDv2 support, so the generated session key is an AEAD session key.
-    let sk_aead = Encryptor::new(AEAD_PROFILE.clone())
+    let sk_aead = Encryptor::new(HAZARD_AEAD_PROFILE.clone())
         .with_encryption_key(key_aead.as_public_key())
         .generate_session_key()
         .expect("Failed to generate session key");
@@ -1458,7 +1465,7 @@ fn aead_seipdv2_encryption_with_aead_profile() {
     assert!(!sk_should_not_be_aead.is_seipdv2_aead());
 
     // The non-AEAD key does not advertise SEIPDv2 support, so AEAD is not used.
-    let sk = Encryptor::new(AEAD_PROFILE.clone())
+    let sk = Encryptor::new(HAZARD_AEAD_PROFILE.clone())
         .with_encryption_key(key.as_public_key())
         .generate_session_key()
         .expect("Failed to generate session key");
@@ -1561,4 +1568,55 @@ fn aead_seipd_v2_encryption_with_session_key_import() {
     assert_eq!(data_packet_aead[2], 2); // SEIPDv2
     assert_eq!(key_packet[2], 3); // PKESKv3
     assert_eq!(data_packet[2], 1); // SEIPDv1
+}
+
+#[test]
+#[allow(clippy::missing_panics_doc)]
+fn aead_seipd_v2_chunk_size_override() {
+    let sk_seipdv2 =
+        SessionKey::generate_for_seipdv2(SymmetricKeyAlgorithm::AES256, &Profile::default());
+
+    let default_chunk_size = Profile::default().message_aead_chunk_size();
+    let message = Encryptor::default()
+        .with_session_key(&sk_seipdv2)
+        .encrypt_raw(b"hello", DataEncoding::Unarmored)
+        .expect("encryption failed");
+    assert_eq!(seipd_v2_chunk_size(&message), default_chunk_size);
+
+    let message = Encryptor::default()
+        .with_session_key(&sk_seipdv2)
+        .with_aead_chunk_size(ChunkSize::C1MiB)
+        .encrypt_raw(b"hello", DataEncoding::Unarmored)
+        .expect("encryption failed");
+    assert_eq!(seipd_v2_chunk_size(&message), ChunkSize::C1MiB);
+
+    let message = Encryptor::default()
+        .with_session_key(&sk_seipdv2)
+        .with_aead_chunk_size(ChunkSize::C512KiB)
+        .encrypt_raw(b"hello", DataEncoding::Unarmored)
+        .expect("encryption failed");
+    assert_eq!(seipd_v2_chunk_size(&message), ChunkSize::C512KiB);
+
+    let qkbyte = [42_u8; 1024];
+    let message = Encryptor::default()
+        .with_session_key(&sk_seipdv2)
+        .with_aead_chunk_size(ChunkSize::C64B)
+        .encrypt_raw(&qkbyte, DataEncoding::Unarmored)
+        .expect("encryption failed");
+    assert_eq!(seipd_v2_chunk_size(&message), ChunkSize::C64B);
+}
+
+fn seipd_v2_chunk_size(encrypted_message: &[u8]) -> ChunkSize {
+    let pgp::packet::Packet::SymEncryptedProtectedData(seipd) =
+        PacketParser::new(encrypted_message)
+            .next()
+            .expect("no packet")
+            .expect("packet parse failed")
+    else {
+        panic!("Expected SEIPD v2 SymEncryptedProtectedData packet");
+    };
+    let pgp::packet::SymEncryptedProtectedDataConfig::V2 { chunk_size, .. } = seipd.config() else {
+        panic!("Expected SEIPD v2 SymEncryptedProtectedData packet");
+    };
+    *chunk_size
 }
