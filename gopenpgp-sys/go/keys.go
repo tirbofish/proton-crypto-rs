@@ -423,7 +423,7 @@ func pgp_session_key_get_algorithm(
 	sessionKey := handleToSessionKey(handle)
 	data, err := sessionKey.GetCipherFunc()
 	if err != nil {
-		return errorToPGPError(fmt.Errorf("failed lock key: %w", err))
+		return errorToPGPError(fmt.Errorf("failed to get key algorithm: %w", err))
 	}
 	*out_code = C.uchar_t(int8(data))
 	return errorToPGPError(nil)
