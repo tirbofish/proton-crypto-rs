@@ -547,10 +547,22 @@ pub fn decrypt_encrypted_message_v4_compressed() {
         .decrypt(INPUT_DATA, DataEncoding::Armored)
         .expect("Failed to decrypt");
 
+    Decryptor::new(profile_with_limit_pass.clone())
+        .with_decryption_key(&key)
+        .with_max_message_reading_size(Some(1024))
+        .decrypt(INPUT_DATA, DataEncoding::Armored)
+        .expect_err("should fail as message is too large, profile overridden");
+
     Decryptor::new(profile_with_limit.clone())
         .with_decryption_key(&key)
         .decrypt(INPUT_DATA, DataEncoding::Armored)
         .expect_err("should fail as message is too large");
+
+    Decryptor::new(profile_with_limit.clone())
+        .with_decryption_key(&key)
+        .with_max_message_reading_size(None)
+        .decrypt(INPUT_DATA, DataEncoding::Armored)
+        .expect("Failed to decrypt, with exception");
 
     // Streaming
     let mut reader = Decryptor::new(profile_with_limit_pass)

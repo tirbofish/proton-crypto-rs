@@ -51,7 +51,7 @@ impl KeyGenerationType {
     pub(crate) fn encryption_key_type(self) -> KeyType {
         match self {
             KeyGenerationType::RSA => KeyType::Rsa(4096),
-            KeyGenerationType::ECC => KeyType::ECDH(ECCCurve::Curve25519),
+            KeyGenerationType::ECC => KeyType::ECDH(ECCCurve::Curve25519Legacy),
             KeyGenerationType::PQC => KeyType::MlKem768X25519,
         }
     }

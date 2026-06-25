@@ -770,7 +770,7 @@ fn check_key_requirements(
                     return Err(KeyRequirementError::WeakEccAlgorithm(curve));
                 }
                 if public_key.version() == KeyVersion::V6
-                    && (curve == ECCCurve::Ed25519 || curve == ECCCurve::Curve25519)
+                    && (curve == ECCCurve::Ed25519Legacy || curve == ECCCurve::Curve25519Legacy)
                 {
                     return Err(KeyRequirementError::MixedLegacyAlgorithms(curve));
                 }
