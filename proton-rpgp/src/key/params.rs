@@ -1,6 +1,7 @@
 use pgp::{
     crypto::ecdh::SecretKey as EcdhSecretKey,
     crypto::ecdsa::SecretKey as EcdsaSecretKey,
+    crypto::eddsa_legacy::SecretKey as EddsaLegacySecretKey,
     types::{
         EcdhPublicParams, EcdsaPublicParams, EddsaLegacyPublicParams, PlainSecretParams,
         PublicParams,
@@ -77,8 +78,8 @@ impl PublicParamsExt for PublicParams {
 
 fn ecdh_public_params_equal_raw_p(a: &EcdhPublicParams, b: &EcdhPublicParams) -> bool {
     match a {
-        EcdhPublicParams::Curve25519 { p, .. } => {
-            matches!(b, EcdhPublicParams::Curve25519 { p: p_b, .. } if p == p_b)
+        EcdhPublicParams::Curve25519Legacy { p, .. } => {
+            matches!(b, EcdhPublicParams::Curve25519Legacy { p: p_b, .. } if p == p_b)
         }
         EcdhPublicParams::P256 { p, .. } => {
             matches!(b, EcdhPublicParams::P256 { p: p_b, .. } if p == p_b)
@@ -122,7 +123,6 @@ impl PlainSecretParamsExt for PlainSecretParams {
         let validation_op = match self {
             PlainSecretParams::RSA(_) // Ok the rsa library validates the public params on import
             | PlainSecretParams::Ed25519(_)
-            | PlainSecretParams::Ed25519Legacy(_)
             | PlainSecretParams::X25519(_)
             | PlainSecretParams::MlKem768X25519(_)
             | PlainSecretParams::MlKem1024X448(_)
@@ -135,14 +135,21 @@ impl PlainSecretParamsExt for PlainSecretParams {
             | PlainSecretParams::SlhDsaShake256s(_) => {
                 ValidationOp::ComputePublicParams
             },
+            PlainSecretParams::EdDSALegacy(secret_key) => {
+                match secret_key {
+                    EddsaLegacySecretKey::Ed25519(_) => ValidationOp::ComputePublicParams,
+                    EddsaLegacySecretKey::Unsupported { .. } => ValidationOp::Unsupported,
+                }
+            },
             PlainSecretParams::ECDH(secret_key) => {
-                match secret_key { // TODO: Modify once Unknown curve is added in rpgp
-                    EcdhSecretKey::Curve25519(_)
+                match secret_key {
+                    EcdhSecretKey::Curve25519Legacy(_)
                     | EcdhSecretKey::P256 { .. }
                     | EcdhSecretKey::P384 { .. }
                     | EcdhSecretKey::P521 { .. } => {
                         ValidationOp::ComputePublicParams
                     },
+                    EcdhSecretKey::Unsupported { .. } => ValidationOp::Unsupported,
                 }
             },
             PlainSecretParams::ECDSA(secret_key) => {
@@ -268,7 +275,7 @@ mod tests {
 
     #[test]
     fn validate_public_params_ecdh_curve25519() {
-        assert_validates_supported(&KeyType::ECDH(ECCCurve::Curve25519));
+        assert_validates_supported(&KeyType::ECDH(ECCCurve::Curve25519Legacy));
     }
 
     #[test]

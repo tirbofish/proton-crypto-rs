@@ -44,17 +44,22 @@ pub struct Verifier<'a> {
 
     /// The verification context to use for verifying message signatures.
     pub(crate) verification_context: Option<Cow<'a, VerificationContext>>,
+
+    /// Max message size to read.
+    pub(crate) max_message_reading_size: Option<usize>,
 }
 
 impl<'a> Verifier<'a> {
     /// Create a new verifier with the given profile.
     pub fn new(profile: Profile) -> Self {
+        let max_message_reading_size = profile.max_reading_size();
         Self {
             profile,
             verification_keys: Vec::new(),
             date: CheckUnixTime::enable_now(),
             verification_context: None,
             native_newlines_utf8: false,
+            max_message_reading_size,
         }
     }
 
@@ -97,6 +102,15 @@ impl<'a> Verifier<'a> {
     /// Further, the decryptor replaces canonical newlines (`\r\n`) with native newlines (`\n`).
     pub fn output_utf8(mut self) -> Self {
         self.native_newlines_utf8 = true;
+        self
+    }
+
+    /// Allows to override the max message reading size.
+    ///
+    /// The verifier does not allow to read more data than the max message reading size.
+    /// None means no limit.
+    pub fn with_max_message_reading_size(mut self, size: Option<usize>) -> Self {
+        self.max_message_reading_size = size;
         self
     }
 
@@ -388,15 +402,15 @@ impl<'a> Verifier<'a> {
             }
         }
 
-        let (mut cleartext, message) =
-            if let Some(max_reading_size) = self.profile.max_reading_size() {
-                let mut reader = LimitingReader::new(message, Some(max_reading_size));
-                let mut cleartext = Vec::new();
-                reader.read_to_end(&mut cleartext)?;
-                (cleartext, reader.into_inner())
-            } else {
-                (message.as_data_vec()?, message)
-            };
+        let (mut cleartext, message) = if let Some(max_reading_size) = self.max_message_reading_size
+        {
+            let mut reader = LimitingReader::new(message, Some(max_reading_size));
+            let mut cleartext = Vec::new();
+            reader.read_to_end(&mut cleartext)?;
+            (cleartext, reader.into_inner())
+        } else {
+            (message.as_data_vec()?, message)
+        };
 
         let verified_signatures = message.verify_message_signatures(
             self.date,
@@ -436,7 +450,7 @@ impl<'a> Verifier<'a> {
         }
 
         let normalize = self.native_newlines_utf8;
-        let max_reading_size = self.profile.max_reading_size();
+        let max_reading_size = self.max_message_reading_size;
         let message_reader =
             LimitingReader::new(MessageVerifyingReader::new(self, message), max_reading_size);
         if normalize {

@@ -951,7 +951,7 @@ mod tests {
         let key_type = match corrupted_secret.primary_key.public_key().algorithm() {
             PublicKeyAlgorithm::Ed25519 => KeyType::Ed25519,
             PublicKeyAlgorithm::EdDSALegacy => KeyType::Ed25519Legacy,
-            PublicKeyAlgorithm::ECDH => KeyType::ECDH(ECCCurve::Curve25519),
+            PublicKeyAlgorithm::ECDH => KeyType::ECDH(ECCCurve::Curve25519Legacy),
             other => panic!("unsupported test key algorithm: {other:?}"),
         };
         let mut rng = StdRng::seed_from_u64(0xDEAD_BEEF);

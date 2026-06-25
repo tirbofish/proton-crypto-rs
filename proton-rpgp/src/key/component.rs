@@ -191,7 +191,7 @@ impl<'a> PrivateComponentKey<'a> {
         let key_check = self.private_key.version() == KeyVersion::V4 && self.is_subkey();
         let curve_check = matches!(
             self.private_key.public_params(),
-            PublicParams::ECDH(params) if params.curve() == ECCCurve::Curve25519
+            PublicParams::ECDH(params) if params.curve() == ECCCurve::Curve25519Legacy
         );
         key_check && curve_check && has_forward_flag
     }
