@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - 2024-00-00
 
+## 0.8.3 - 2026-07-02
+
+### Changed
+- Bumped optional `pgp` to `0.20.0`.
+
+
 ## 0.8.2 - 2026-03-13
 
 ### Changed

@@ -64,24 +64,24 @@ facet = { version = "=0.44" }
 # --- Workspace crates ---
 [workspace.dependencies.gopenpgp-sys]
 path     = "gopenpgp-sys"
-version  = "0.3.6"
+version  = "0.3.7"
 registry = "proton"
 
 [workspace.dependencies.proton-crypto]
 path     = "proton-crypto"
-version  = "0.13.1"
+version  = "0.13.2"
 default-features = false
 registry = "proton"
 
 [workspace.dependencies.proton-crypto-account]
 path     = "proton-crypto-account"
-version  = "0.19.1"
+version  = "0.19.2"
 registry = "proton"
 
 [workspace.dependencies.proton-srp]
 path     = "proton-srp"
 default-features = false
-version  = "0.8.2"
+version  = "0.8.3"
 registry = "proton"
 
 [workspace.dependencies.proton-crypto-subtle]
@@ -96,7 +96,7 @@ registry = "proton"
 
 [workspace.dependencies.proton-rpgp]
 path     = "proton-rpgp"
-version  = "0.4.0"
+version  = "0.5.0"
 registry = "proton"
 
 

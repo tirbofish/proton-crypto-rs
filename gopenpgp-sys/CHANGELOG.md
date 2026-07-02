@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - 2023-00-00
 
+## [0.3.7] - 2026-07-02
+
+### Changed
+
+- Improved error message on `pgp_session_key_get_algorithm`.
+
 ## [0.3.6] - 2026-06-05
 
 ### Fixed

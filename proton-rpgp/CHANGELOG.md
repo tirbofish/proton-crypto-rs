@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - 2026-00-00
 
+## [0.5.0] - 2026-07-02
+
+### Added
+
+- Adds the AEAD Seipdv2 API for proton-rpgp.
+- `HAZARD_AEAD_PROFILE`: profile with AEAD enabled by default
+- New `with_aead` and `with_aead_chunk_size` method on the Encryptor for AEAD encryption.
+- `is_seipdv2_aead` on the `SessionKey` type
+
+### Changed
+
+- Bump `pgp` to `0.20.0`: Fixes an issue where decrypting or verifying empty messages triggerd an error.
+
 ## [0.4.0] - 2026-06-05
 
 ### Changed
