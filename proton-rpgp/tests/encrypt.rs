@@ -1620,3 +1620,26 @@ fn seipd_v2_chunk_size(encrypted_message: &[u8]) -> ChunkSize {
     };
     *chunk_size
 }
+
+#[test]
+#[allow(clippy::missing_panics_doc)]
+pub fn encrypt_and_sign_message_v4_empty() {
+    let input_data = b"";
+    let key = PrivateKey::import_unlocked(TEST_KEY.as_bytes(), DataEncoding::Armored)
+        .expect("Failed to import key");
+
+    let encrypted_data = Encryptor::default()
+        .with_encryption_key(key.as_public_key())
+        .with_signing_key(&key)
+        .encrypt_raw(input_data, DataEncoding::Armored)
+        .expect("Failed to encrypt");
+
+    let verified_data = Decryptor::default()
+        .with_decryption_key(&key)
+        .with_verification_key(key.as_public_key())
+        .decrypt(encrypted_data.as_slice(), DataEncoding::Armored)
+        .expect("Failed to decrypt");
+
+    assert_eq!(verified_data.data, input_data);
+    assert!(verified_data.verification_result.is_ok());
+}
