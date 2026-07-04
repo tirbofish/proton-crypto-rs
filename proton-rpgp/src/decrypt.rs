@@ -8,7 +8,7 @@ use std::{
 use pgp::{
     composed::{decrypt_session_key_with_password, Esk},
     packet::{Packet, PacketParser},
-    types::Password,
+    types::{Password, Seipdv1ReadMode},
 };
 
 use crate::{
@@ -154,6 +154,15 @@ impl<'a> Decryptor<'a> {
         self
     }
 
+    /// Allows to override the max message reading size.
+    ///
+    /// The decryptor does not allow to read more data than the max message reading size.
+    /// None means no limit.
+    pub fn with_max_message_reading_size(mut self, size: Option<usize>) -> Self {
+        self.verifier = self.verifier.with_max_message_reading_size(size);
+        self
+    }
+
     /// Decrypts the given data and tries to verify the included signatures.
     ///
     /// # Example
@@ -191,7 +200,12 @@ impl<'a> Decryptor<'a> {
             return Err(DecryptionError::NoEncryption.into());
         }
 
-        let message = message.decrypt_with_decryptor(&self)?;
+        let mode = match self.verifier.max_message_reading_size {
+            Some(max_message_size) => Seipdv1ReadMode::CheckFirst { max_message_size },
+            None => Seipdv1ReadMode::default(),
+        };
+
+        let message = message.decrypt_with_decryptor(&self, mode)?;
 
         if let Some(detached_signature) = self.detached_signature.take() {
             let mut verified_data = self
@@ -258,7 +272,7 @@ impl<'a> Decryptor<'a> {
             return Err(DecryptionError::NoEncryption.into());
         }
 
-        let message = message.decrypt_with_decryptor(&self)?;
+        let message = message.decrypt_with_decryptor(&self, Seipdv1ReadMode::Streaming)?;
 
         if let Some(detached_signature) = self.detached_signature.take() {
             let message_reader = self

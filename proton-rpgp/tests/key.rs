@@ -2,9 +2,9 @@ use std::sync::LazyLock;
 
 use pgp::crypto::{hash::HashAlgorithm, sym::SymmetricKeyAlgorithm};
 use proton_rpgp::{
-    AccessKeyInfo, DataEncoding, Error, KeyGenerationType, KeyGenerator, KeyOperationError,
-    LockedPrivateKey, PrivateKey, Profile, ProfileSettings, PublicKey, SessionKey,
-    StringToKeyOption, UnixTime,
+    AccessKeyInfo, AsPublicKeyRef, DataEncoding, Encryptor, Error, KeyGenerationType, KeyGenerator,
+    KeyLock, KeyOperationError, LockedPrivateKey, PrivateKey, Profile, ProfileSettings, PublicKey,
+    SessionKey, StringToKeyOption, UnixTime,
 };
 
 pub const TEST_PRIVATE_KEY: &str = include_str!("../test-data/keys/locked_private_key_v6.asc");
@@ -28,7 +28,7 @@ fn key_import_and_unlock_private_key() {
         .expect("Failed to import key");
 
     let unlocked = key
-        .unlock(TEST_PRIVATE_KEY_PASSWORD.as_bytes())
+        .unlock(TEST_PRIVATE_KEY_PASSWORD.as_bytes(), KeyLock::Expected)
         .expect("Failed to unlock key");
     assert_eq!(unlocked.key_id(), key.key_id());
 }
@@ -38,7 +38,7 @@ fn key_import_and_unlock_private_key_fail() {
     let key = LockedPrivateKey::import(TEST_PRIVATE_KEY.as_bytes(), DataEncoding::Armored)
         .expect("Failed to import key");
 
-    let unlocked = key.unlock(b"wrong_password");
+    let unlocked = key.unlock(b"wrong_password", KeyLock::Expected);
     assert!(matches!(
         unlocked,
         Err(Error::KeyOperation(KeyOperationError::Unlock(_, _)))
@@ -78,7 +78,7 @@ fn key_export_import_unlock_key() {
         .expect("Failed to import key");
 
     let unlocked_key = key
-        .unlock(TEST_PRIVATE_KEY_PASSWORD.as_bytes())
+        .unlock(TEST_PRIVATE_KEY_PASSWORD.as_bytes(), KeyLock::Expected)
         .expect("Failed to unlock key");
 
     let exported = unlocked_key
@@ -105,7 +105,7 @@ fn key_export_import_unlocked_key() {
         .expect("Failed to import key");
 
     let unlocked_key = key
-        .unlock(TEST_PRIVATE_KEY_PASSWORD.as_bytes())
+        .unlock(TEST_PRIVATE_KEY_PASSWORD.as_bytes(), KeyLock::Expected)
         .expect("Failed to unlock key");
 
     let exported = unlocked_key
@@ -331,4 +331,105 @@ fn fix_future_key_with_modification() {
     modified_key
         .check_can_verify(&KEY_TEST_PROFILE, current_date.into())
         .expect("Modified key should be able to verify");
+}
+
+#[test]
+fn key_secret_primary_param_validation() {
+    const TEST_KEY: &str =
+        include_str!("../test-data/keys/locked_private_key_v4_malformed_primary_params.asc");
+
+    let unlock_result = PrivateKey::import(TEST_KEY.as_bytes(), b"password", DataEncoding::Armored);
+    assert!(matches!(
+        unlock_result,
+        Err(Error::KeyOperation(KeyOperationError::ValidatePublicParts(
+            _
+        )))
+    ));
+}
+
+#[test]
+fn key_secret_subkey_param_modified() {
+    const TEST_KEY: &str =
+        include_str!("../test-data/keys/locked_private_key_v4_malformed_subkey_params.asc");
+
+    let private_key = PrivateKey::import(TEST_KEY.as_bytes(), b"password", DataEncoding::Armored)
+        .expect("unlock succeeds");
+
+    let enc_result = Encryptor::default()
+        .with_encryption_key(private_key.as_public_key())
+        .encrypt_raw(b"hello world", DataEncoding::Armored);
+
+    assert!(enc_result.is_err()); // Encryption should fail because the binding sigature is invalid.
+}
+
+#[test]
+fn key_secret_param_validation_success() {
+    const TEST_KEY: &str = include_str!("../test-data/keys/locked_private_key_v4.asc");
+    const TEST_KEY_RSA: &str = include_str!("../test-data/keys/locked_private_key_v4_rsa_1023.asc");
+    const TEST_KEY_V6: &str = include_str!("../test-data/keys/locked_private_key_v6.asc");
+
+    let unlock_result = PrivateKey::import(TEST_KEY.as_bytes(), b"password", DataEncoding::Armored);
+    assert!(unlock_result.is_ok());
+
+    let unlock_result_rsa =
+        PrivateKey::import(TEST_KEY_RSA.as_bytes(), b"password", DataEncoding::Armored);
+    assert!(unlock_result_rsa.is_ok());
+
+    let unlock_result_v6 =
+        PrivateKey::import(TEST_KEY_V6.as_bytes(), b"password", DataEncoding::Armored);
+    assert!(unlock_result_v6.is_ok());
+}
+
+#[test]
+fn unlock_malformed_rsa_key_fails() {
+    const TEST_KEY: &str =
+        include_str!("../test-data/keys/locked_private_key_v4_rsa_malformed_subkey.asc");
+
+    let unlock_result = PrivateKey::import(TEST_KEY.as_bytes(), b"password", DataEncoding::Armored);
+    assert!(unlock_result.is_err());
+}
+
+#[test]
+fn unlock_public_subkey_fails() {
+    const TEST_KEY: &str =
+        include_str!("../test-data/keys/locked_private_key_v4_with_one_public_subkey.asc");
+
+    let unlock_result = PrivateKey::import(TEST_KEY.as_bytes(), b"password", DataEncoding::Armored);
+    assert!(unlock_result.is_err());
+}
+
+#[test]
+fn unlock_subkey_unlocked_fails() {
+    const TEST_KEY: &str =
+        include_str!("../test-data/keys/locked_private_key_v4_one_subkey_unlocked.asc");
+
+    let unlock_result = PrivateKey::import(TEST_KEY.as_bytes(), b"password", DataEncoding::Armored);
+    assert!(unlock_result.is_err());
+}
+
+#[test]
+fn unlock_elgamal_subkey_succeeds_but_fails_on_operation() {
+    const TEST_KEY: &str =
+        include_str!("../test-data/keys/locked_private_key_v4_elgamal_subkey.asc");
+
+    let private_key = PrivateKey::import(TEST_KEY.as_bytes(), b"password", DataEncoding::Armored)
+        .expect("Failed to import key");
+    let enc_result = Encryptor::default()
+        .with_encryption_key(private_key.as_public_key())
+        .encrypt_raw(b"hello world", DataEncoding::Armored);
+
+    assert!(enc_result.is_err()); // Encryption should fail because el gamal is not supported for operations.
+}
+
+#[test]
+fn unlock_dsa_key_succeeds_but_fails_on_operation() {
+    const TEST_KEY: &str = include_str!("../test-data/keys/locked_private_key_v4_primary_dsa.asc");
+
+    let private_key = PrivateKey::import(TEST_KEY.as_bytes(), b"password", DataEncoding::Armored)
+        .expect("Failed to import key");
+    let enc_result = Encryptor::default()
+        .with_encryption_key(private_key.as_public_key())
+        .encrypt_raw(b"hello world", DataEncoding::Armored);
+
+    assert!(enc_result.is_err()); // Encryption should fail because DSA is not supported for operations. (binding signature is invalid)
 }

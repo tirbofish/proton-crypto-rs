@@ -1,6 +1,6 @@
 use proton_rpgp::{
     AccessKeyInfo, AsPublicKeyRef, DataEncoding, PrivateKey, ProfileSettings, PublicKey, UnixTime,
-    VerificationError, VerificationInformation, Verifier,
+    VerificationError, VerificationInformation, VerificationResultUtility, Verifier,
 };
 use std::io::{self};
 
@@ -67,6 +67,43 @@ pub fn verify_detached_signature_v4_stream() {
             assert_eq!(
                 verification_information.signature_creation_time,
                 UnixTime::new(1_752_153_549)
+            );
+            check_signatures(&verification_information, 1);
+        }
+        Err(verification_error) => {
+            panic!("Verification failed: {verification_error}");
+        }
+    }
+}
+
+#[test]
+#[allow(clippy::missing_panics_doc)]
+pub fn verify_detached_signature_v4_stream_empty() {
+    const SIGNATURE: &str = include_str!("../test-data/signatures/signature_v4_empty.asc");
+
+    let data = b"";
+
+    let test_date = UnixTime::new(1_780_401_662);
+
+    let verification_key = PublicKey::import(TEST_KEY.as_bytes(), DataEncoding::Armored)
+        .expect("Failed to import key");
+
+    let mut reader = Verifier::default()
+        .with_verification_key(&verification_key)
+        .at_date(test_date.into())
+        .verify_detached_stream(&data[..], SIGNATURE.as_bytes(), DataEncoding::Armored)
+        .expect("Failed to create verifying reader");
+
+    reader.discard_all_data().expect("Failed to discard data");
+
+    let verification_result = reader.verification_result();
+
+    match verification_result {
+        Ok(verification_information) => {
+            assert_eq!(verification_information.key_id, verification_key.key_id());
+            assert_eq!(
+                verification_information.signature_creation_time,
+                UnixTime::new(1_752_476_259)
             );
             check_signatures(&verification_information, 1);
         }
@@ -507,6 +544,46 @@ pub fn verify_inline_signed_message_v4_compressed() {
         .expect_err("should fail as message is too large");
 }
 
+#[test]
+#[allow(clippy::missing_panics_doc)]
+#[allow(clippy::indexing_slicing)]
+pub fn verificarion_result_utility() {
+    const SIGNATURE: &str = include_str!("../test-data/signatures/signature_multiple.asc");
+    let date = UnixTime::new(1_752_648_785);
+    let verification_key = PublicKey::import(TEST_KEY.as_bytes(), DataEncoding::Armored)
+        .expect("Failed to import key");
+    let verification_result = Verifier::default()
+        .with_verification_key(&verification_key)
+        .at_date(date.into())
+        .verify_detached(b"hello world", SIGNATURE.as_bytes(), DataEncoding::Armored);
+
+    let utility = VerificationResultUtility::from(&verification_result);
+    assert!(utility.verification_success());
+    assert!(utility.verification_information().is_some());
+
+    let selected_signature = utility
+        .selected_signature_bytes()
+        .expect("Failed to get selected signature");
+    let count = pgp::packet::PacketParser::new(&selected_signature[..])
+        .filter_map(|parse_result| match parse_result {
+            Ok(pgp::packet::Packet::Signature(signature)) => Some(signature),
+            _ => None,
+        })
+        .count();
+    assert_eq!(count, 1, "Expected 1  signatures, got {count}");
+
+    let all_signatures = utility
+        .all_signature_bytes()
+        .expect("Failed to get all signature bytes");
+    let count = pgp::packet::PacketParser::new(&all_signatures[selected_signature.len()..])
+        .filter_map(|parse_result| match parse_result {
+            Ok(pgp::packet::Packet::Signature(signature)) => Some(signature),
+            _ => None,
+        })
+        .count();
+    assert_eq!(count, 2, "Expected 2 signatures, got {count}");
+}
+
 fn check_signatures(info: &VerificationInformation, expected_number: usize) {
     let signature_bytes = info
         .all_signature_bytes()
@@ -521,4 +598,15 @@ fn check_signatures(info: &VerificationInformation, expected_number: usize) {
         count, expected_number,
         "Expected {expected_number} signatures, got {count}"
     );
+
+    let selected_signature = info
+        .signature_bytes()
+        .expect("Failed to get signature bytes");
+    let count = pgp::packet::PacketParser::new(&selected_signature[..])
+        .filter_map(|parse_result| match parse_result {
+            Ok(pgp::packet::Packet::Signature(signature)) => Some(signature),
+            _ => None,
+        })
+        .count();
+    assert_eq!(count, 1, "Expected 1 signatures, got {count}");
 }

@@ -173,6 +173,36 @@ pub enum KeyOperationError {
 
     #[error("Key is locked")]
     Locked,
+
+    #[error("Unlocking an expected locked key failed: {0}")]
+    ExpectLocked(#[from] ExpectLockedError),
+
+    #[error("Failed to validate public parts of private OpenPGP key: {0}")]
+    ValidatePublicParts(#[from] KeySecretParamValidationError),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ExpectLockedError {
+    #[error("Primary key is already unlocked")]
+    PrimaryKeyUnlocked,
+
+    #[error("Subkey {0} is already unlocked")]
+    SubkeyUnlocked(KeyId),
+
+    #[error("Found public subkey in a key supposed to be locked")]
+    NoPublicSubkeys,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum KeySecretParamValidationError {
+    #[error("Failed to validate public parts because the key is locked")]
+    ValidatePublicPartsOnLocked,
+
+    #[error("Failed to compute public parameters from secret parameters")]
+    PublicParamsConversionFailed(#[from] pgp::errors::Error),
+
+    #[error("The private parameters do not match the public parameters for the secret key")]
+    ValidatePublicPartsFailed,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -230,6 +260,9 @@ pub enum KeyRequirementError {
 
     #[error("Invalid algorithm for usage: {0:?}")]
     InvalidUsageAlgorithm(PublicKeyAlgorithm),
+
+    #[error("Algorithm is not supported by the library")]
+    UnsupportedAlgorithm,
 }
 
 #[derive(Debug, thiserror::Error)]

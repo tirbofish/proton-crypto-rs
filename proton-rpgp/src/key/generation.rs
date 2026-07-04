@@ -97,7 +97,7 @@ impl KeyGenerator {
     /// ```
     pub fn generate(self) -> crate::Result<PrivateKey> {
         let mut rng = self.profile.rng();
-        let key_generation_options = self.algorithm.key_generation_profile();
+        let key_generation_options = self.algorithm.key_generation_profile(&self.profile);
         let preferred_hash = self.profile.key_hash_algorithm();
         let (primary_user_id, non_primary_user_ids) =
             convert_user_ids(&self.user_ids).map_err(KeyGenerationError::InvalidUserId)?;
@@ -241,7 +241,10 @@ mod tests {
         types::KeyDetails,
     };
 
-    use crate::{AccessKeyInfo, DataEncoding, SignatureExt};
+    use crate::{
+        AccessKeyInfo, DataEncoding, SignatureExt, HAZARD_AEAD_PROFILE,
+        PREFERRED_KEY_GEN_AEAD_CIPHERSUITES,
+    };
 
     use super::*;
 
@@ -280,6 +283,63 @@ mod tests {
                 && !key_info_signature.features().unwrap().seipd_v2()
         );
 
+        let user_id = load_user_id(&exported).unwrap();
+        assert_eq!(user_id.as_str().unwrap(), "test <test@test.test>");
+
+        let subkey_signature = load_subkey_signature(&exported);
+        assert_eq!(subkey_signature.version(), SignatureVersion::V4);
+        assert_eq!(subkey_signature.hash_alg(), Some(HashAlgorithm::Sha512));
+        assert_eq!(subkey_signature.unix_created_at().unwrap(), date);
+        assert_eq!(
+            subkey_signature.issuer_fingerprint().first().copied(),
+            Some(&key.fingerprint())
+        );
+        assert!(
+            subkey_signature.key_flags().encrypt_comms()
+                && subkey_signature.key_flags().encrypt_storage()
+        );
+    }
+
+    #[test]
+    fn test_key_generation_details_v4_with_aead() {
+        let date = UnixTime::new(1_756_196_260);
+
+        let key = KeyGenerator::new(HAZARD_AEAD_PROFILE.clone())
+            .with_user_id("test", "test@test.test")
+            .with_key_type(KeyGenerationType::ECC)
+            .at_date(date)
+            .generate()
+            .unwrap();
+
+        assert_eq!(key.version(), 4);
+        assert_eq!(UnixTime::from(key.public.inner.created_at()), date);
+
+        let exported = key
+            .export_unlocked(DataEncoding::Unarmored)
+            .expect("Failed to export key");
+
+        let key_info_signature = load_user_id_signature(&exported);
+        assert_eq!(key_info_signature.version(), SignatureVersion::V4);
+        assert_eq!(key_info_signature.hash_alg(), Some(HashAlgorithm::Sha512));
+        assert_eq!(
+            key_info_signature.issuer_fingerprint().first().copied(),
+            Some(&key.fingerprint())
+        );
+        assert_eq!(
+            key_info_signature.issuer_key_id().first().copied(),
+            Some(&key.key_id())
+        );
+        assert_eq!(key_info_signature.unix_created_at().unwrap(), date);
+        assert!(key_info_signature.key_flags().certify() && key_info_signature.key_flags().sign());
+        assert!(
+            key_info_signature.features().unwrap().seipd_v1()
+                && key_info_signature.features().unwrap().seipd_v2()
+        );
+
+        assert_eq!(
+            key_info_signature.preferred_aead_algs(),
+            PREFERRED_KEY_GEN_AEAD_CIPHERSUITES
+        );
         let user_id = load_user_id(&exported).unwrap();
         assert_eq!(user_id.as_str().unwrap(), "test <test@test.test>");
 

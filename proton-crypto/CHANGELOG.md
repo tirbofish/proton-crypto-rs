@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - 2025-00-00
 
+## [0.13.2] - 2026-07-02
+
+### Changed
+
+- Bump `proton-rpgp` to `0.5.0`.
+- Bump `gopenpgp-sys` to `0.3.7`.
+- Bump `proton-srp` to `0.8.3`.
+
+## [0.13.1] - 2026-06-12
+
+### Changed
+
+- Bumped `facet` to `0.44`.
+
+## [0.13.0] - 2026-06-05
+
+### Changed
+
+- BREAKING: Removed the `rustpgp_asm` feature flag due to dangerous instability on Apple silicon (Apple arm) platforms.
+- Bump `proton-rpgp` to `0.4.0`.
+- Bump `gopenpgp-sys` to `0.3.6`.
+
+## [0.12.2] - 2026-04-16
+
+### Changed
+
+- Bump `proton-rpgp` to `0.3.2`.
+- Bump `gopenpgp-sys` to `0.3.5`.
+
 ## [0.12.1] - 2026-04-13
 
 ### Changed
@@ -23,7 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Require Provider types to be 'static in the crypto API traits.
 - Bump `proton-rpgp` to `0.3.1`.
-- Nump `gopenpgp-sys` to `0.3.4`.
+- Bump `gopenpgp-sys` to `0.3.4`.
 
 ## [0.11.0] - 2026-03-13
 

@@ -3,7 +3,7 @@ use std::borrow::Cow;
 use pgp::{
     composed::{DecryptionOptions, Message, PlainSessionKey, TheRing},
     packet::PublicKeyEncryptedSessionKey,
-    types::PkeskVersion,
+    types::{PkeskVersion, Seipdv1ReadMode},
 };
 
 use crate::{
@@ -13,14 +13,22 @@ use crate::{
 
 pub trait MessageDecryptionExt<'a> {
     /// Decrypts the message using the given decryptor.
-    fn decrypt_with_decryptor(self, decryptor: &Decryptor) -> Result<Message<'a>, DecryptionError>;
+    fn decrypt_with_decryptor(
+        self,
+        decryptor: &Decryptor,
+        seipdv1_read_mode: Seipdv1ReadMode,
+    ) -> Result<Message<'a>, DecryptionError>;
 }
 
 impl<'a> MessageDecryptionExt<'a> for Message<'a> {
     /// Decrypts the message using the given decryptor.
     ///
     /// This is a helper function for the decryptor.
-    fn decrypt_with_decryptor(self, decryptor: &Decryptor) -> Result<Message<'a>, DecryptionError> {
+    fn decrypt_with_decryptor(
+        self,
+        decryptor: &Decryptor,
+        seipdv1_read_mode: Seipdv1ReadMode,
+    ) -> Result<Message<'a>, DecryptionError> {
         let Message::Encrypted {
             esk,
             edata: _,
@@ -43,11 +51,15 @@ impl<'a> MessageDecryptionExt<'a> for Message<'a> {
             session_keys.push(session_key.into());
         }
 
+        let decrypt_options = DecryptionOptions::new()
+            .enable_gnupg_aead()
+            .set_seipdv1_read_mode(seipdv1_read_mode);
+
         // Use the session keys to decrypt the message with
         // `the ring`
         let the_ring = TheRing {
             session_keys,
-            decrypt_options: DecryptionOptions::default().enable_gnupg_aead(),
+            decrypt_options,
             ..Default::default()
         };
 

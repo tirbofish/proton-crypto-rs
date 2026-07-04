@@ -172,7 +172,7 @@ impl VerificationResultUtility<'_> {
     /// If there were no signatures, an empty vector is returned.
     pub fn selected_signature_bytes(&self) -> crate::Result<Vec<u8>> {
         self.verification_information()
-            .map_or(Ok(Vec::new()), VerificationInformation::all_signature_bytes)
+            .map_or(Ok(Vec::new()), VerificationInformation::signature_bytes)
     }
 
     /// Serialize all signature bytes.

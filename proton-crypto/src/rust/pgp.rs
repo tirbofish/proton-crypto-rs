@@ -74,6 +74,7 @@ impl From<DataEncoding> for RustDataEncoding {
     }
 }
 
+#[derive(Clone)]
 pub struct RustPGPProvider {
     pub clock: &'static CryptoClock,
     pub profile: Profile,

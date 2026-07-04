@@ -1,6 +1,6 @@
 [package]
 name = "proton-crypto-account"
-version = "0.18.1"
+version = "0.19.2"
 edition.workspace = true
 
 license-file = "LICENSE"
@@ -35,6 +35,5 @@ facet = ["dep:facet", "proton-crypto/facet"]
 # re-export proton-crypto flags
 rustpgp = ["proton-crypto/rustpgp"]
 gopgp = ["proton-crypto/gopgp"]
-rustpgp_asm = ["rustpgp", "proton-crypto/rustpgp_asm"]
 multi_be = ["rustpgp", "gopgp", "proton-crypto/multi_be"]
 
