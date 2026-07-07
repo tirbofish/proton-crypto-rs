@@ -291,6 +291,16 @@ pub enum GenericKeyIdentifier {
     Wildcard,
 }
 
+impl GenericKeyIdentifier {
+    pub fn key_id(&self) -> Option<KeyId> {
+        match self {
+            Self::KeyId(key_id) | Self::Both(key_id, _) => Some(*key_id),
+            Self::Fingerprint(fingerprint) => fingerprint.key_id(),
+            Self::Wildcard => Some(KeyId::new([0_u8; 8])),
+        }
+    }
+}
+
 impl PartialEq for GenericKeyIdentifier {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
@@ -467,12 +477,12 @@ impl FingerprintExt for Fingerprint {
                 let key_id_bytes: Option<[u8; 8]> = fp[12..].try_into().ok();
                 key_id_bytes.map(KeyId::new)
             }
-            Fingerprint::V6(fp) => {
+            Fingerprint::V5(fp) | Fingerprint::V6(fp) => {
                 // first 64 bits of fingerprint
                 let key_id_bytes: Option<[u8; 8]> = fp[..8].try_into().ok();
                 key_id_bytes.map(KeyId::new)
             }
-            _ => None,
+            Fingerprint::V2(_) | Fingerprint::V3(_) | Fingerprint::Unknown(_) => None,
         }
     }
 }
