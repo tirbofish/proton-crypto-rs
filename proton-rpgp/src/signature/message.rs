@@ -48,12 +48,10 @@ impl VerificationInformation {
         let key_id = if let Some(info) = info {
             info.key_id
         } else {
+            let generic_identifier = signature.issuer_generic_identifier().into_iter().next();
             // Fallback to the first issuer if no key info is provided.
-            signature
-                .issuer_key_id()
-                .into_iter()
-                .next()
-                .copied()
+            generic_identifier
+                .and_then(|id| id.key_id())
                 .unwrap_or(KeyId::new([0_u8; 8]))
         };
 
