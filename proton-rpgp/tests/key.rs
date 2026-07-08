@@ -433,3 +433,21 @@ fn unlock_dsa_key_succeeds_but_fails_on_operation() {
 
     assert!(enc_result.is_err()); // Encryption should fail because DSA is not supported for operations. (binding signature is invalid)
 }
+
+const TEST_KEY_SECP256K1: &str =
+    include_str!("../test-data/keys/locked_private_key_v4_secp256k1.asc");
+
+#[test]
+#[allow(clippy::missing_panics_doc)]
+pub fn import_secp256k1_key_is_unsupported() {
+    let result = PrivateKey::import(
+        TEST_KEY_SECP256K1.as_bytes(),
+        b"password",
+        DataEncoding::Armored,
+    );
+
+    assert!(matches!(
+        result,
+        Err(Error::KeyOperation(KeyOperationError::Decode(_)))
+    ));
+}
