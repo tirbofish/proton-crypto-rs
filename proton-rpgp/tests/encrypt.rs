@@ -1905,3 +1905,82 @@ pub fn encrypt_and_sign_message_v4_empty() {
     assert_eq!(verified_data.data, input_data);
     assert!(verified_data.verification_result.is_ok());
 }
+
+fn encrypt_sign_decrypt_verify_roundtrip(locked_key: &str) {
+    let input_data = b"hello world";
+    let key = PrivateKey::import(locked_key.as_bytes(), b"password", DataEncoding::Armored)
+        .expect("Failed to import key");
+
+    let encrypted_data = Encryptor::default()
+        .with_encryption_key(key.as_public_key())
+        .with_signing_key(&key)
+        .encrypt_raw(input_data, DataEncoding::Armored)
+        .expect("Failed to encrypt");
+
+    let verified_data = Decryptor::default()
+        .with_decryption_key(&key)
+        .with_verification_key(key.as_public_key())
+        .decrypt(encrypted_data.as_slice(), DataEncoding::Armored)
+        .expect("Failed to decrypt");
+
+    assert_eq!(verified_data.data, input_data);
+    assert!(verified_data.verification_result.is_ok());
+}
+
+#[test]
+#[allow(clippy::missing_panics_doc)]
+pub fn encrypt_sign_decrypt_verify_rsa_1023() {
+    const TEST_KEY_RSA_1023: &str =
+        include_str!("../test-data/keys/locked_private_key_v4_rsa_1023.asc");
+    encrypt_sign_decrypt_verify_roundtrip(TEST_KEY_RSA_1023);
+}
+
+#[test]
+#[allow(clippy::missing_panics_doc)]
+pub fn encrypt_sign_decrypt_verify_nist_p256() {
+    const TEST_KEY_NIST_P256: &str =
+        include_str!("../test-data/keys/locked_private_key_v4_nist_p256.asc");
+    encrypt_sign_decrypt_verify_roundtrip(TEST_KEY_NIST_P256);
+}
+
+#[test]
+#[allow(clippy::missing_panics_doc)]
+pub fn encrypt_sign_decrypt_verify_nist_p521() {
+    const TEST_KEY_NIST_P521: &str =
+        include_str!("../test-data/keys/locked_private_key_v4_nist_p521.asc");
+    encrypt_sign_decrypt_verify_roundtrip(TEST_KEY_NIST_P521);
+}
+
+#[test]
+#[allow(clippy::missing_panics_doc)]
+pub fn encrypt_sign_decrypt_verify_v6_curve448() {
+    const TEST_KEY_V6_CURVE448: &str =
+        include_str!("../test-data/keys/locked_private_key_v6_curve448.asc");
+    encrypt_sign_decrypt_verify_roundtrip(TEST_KEY_V6_CURVE448);
+}
+
+#[test]
+#[allow(clippy::missing_panics_doc)]
+pub fn encrypt_sign_brainpool_p256_is_unsupported() {
+    const TEST_KEY_BRAINPOOL_P256: &str =
+        include_str!("../test-data/keys/locked_private_key_v4_brainpool_p256.asc");
+    let input_data = b"hello world";
+    let key = PrivateKey::import(
+        TEST_KEY_BRAINPOOL_P256.as_bytes(),
+        b"password",
+        DataEncoding::Armored,
+    )
+    .expect("Failed to import key");
+
+    let result = Encryptor::default()
+        .with_encryption_key(key.as_public_key())
+        .with_signing_key(&key)
+        .encrypt_raw(input_data, DataEncoding::Armored);
+
+    assert!(matches!(
+        result,
+        Err(Error::Encryption(EncryptionError::EncryptionKeySelection(
+            _
+        )))
+    ));
+}
