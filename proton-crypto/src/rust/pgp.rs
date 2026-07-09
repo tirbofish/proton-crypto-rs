@@ -56,11 +56,7 @@ impl From<RustCheckUnixTime> for UnixTimestamp {
 
 impl From<UnixTimestamp> for RustCheckUnixTime {
     fn from(value: UnixTimestamp) -> Self {
-        if value.is_zero() {
-            Self::disable()
-        } else {
-            Self::enable(value.into())
-        }
+        Self::enable(value.into())
     }
 }
 
