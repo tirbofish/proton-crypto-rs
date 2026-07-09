@@ -588,16 +588,14 @@ impl UnixTimestamp {
         Self(unix_time)
     }
     /// Creates unix timestamp with the zero value.
-    ///
-    /// If a zero value is supplied to the API expirations checks are skipped.
     pub fn zero() -> Self {
         Self(0)
     }
-    /// Indicates if the timestamp is zero.
+
     pub fn is_zero(&self) -> bool {
         self.0 == 0
     }
-    /// Indicates if the timestamp is zero.
+
     pub fn value(&self) -> u64 {
         self.0
     }
