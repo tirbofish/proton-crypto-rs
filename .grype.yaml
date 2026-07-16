@@ -3,3 +3,39 @@ ignore:
   - vulnerability: GHSA-v778-237x-gjrc
   # We are not using SSH from golang.org/x/crypto
   - vulnerability: GHSA-hcg3-q754-cr77
+  # We are not using SSH from golang.org/x/crypto
+  - vulnerability: GHSA-vgwf-h737-ff37
+  - vulnerability: GO-2026-5017
+  - vulnerability: GHSA-f5wc-c3c7-36mc
+  - vulnerability: GO-2026-5006
+  - vulnerability: GO-2025-4116
+  - vulnerability: GHSA-5cgq-3rg8-m6cv
+  - vulnerability: GO-2026-5021
+  - vulnerability: GHSA-rm3j-f69w-wqmq
+  - vulnerability: GO-2026-5020
+  - vulnerability: GHSA-89gr-r52h-f8rx
+  - vulnerability: GO-2026-5019
+  - vulnerability: GHSA-jppx-rxg9-jmrx
+  - vulnerability: GO-2026-5005
+  - vulnerability: GHSA-x527-x647-q7gg
+  - vulnerability: GO-2026-5023
+  - vulnerability: GHSA-w879-237q-wc7r
+  - vulnerability: GO-2026-5018
+  - vulnerability: GHSA-78mq-xcr3-xm33
+  - vulnerability: GO-2026-5015
+  - vulnerability: GHSA-45gg-vh54-h5m9
+  - vulnerability: GO-2026-5014
+  - vulnerability: GHSA-q4h4-gmj2-qvw2
+  - vulnerability: GO-2026-5013
+  - vulnerability: GHSA-j5w8-q4qc-rx2x
+  - vulnerability: GO-2025-4134
+  - vulnerability: GHSA-f6x5-jh6r-wrfv
+  - vulnerability: GO-2025-4135
+  - vulnerability: GHSA-9m57-25v3-79x9
+  - vulnerability: GO-2026-5033
+  - vulnerability: GHSA-qpw4-5x99-6vjp
+  - vulnerability: GO-2026-5016
+  # Only affects CombinedMult on secp384r1 in circl/ecc/p384, which we do not use
+  - vulnerability: GHSA-q9hv-hpm4-hj6x
+  # Windows-only (x/sys/windows NewNTUnicodeString); we do not target Windows-specific APIs from this dependency
+  - vulnerability: GO-2026-5024
