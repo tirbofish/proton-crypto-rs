@@ -132,14 +132,14 @@ fn test_user_keys_decrypt() {
         .salt_for_key(&srp_provider, &key_id, "password".as_bytes())
         .unwrap();
     let unlocked_user_key = user_keys.unlock(&provider, &key_secret);
-    assert!(unlocked_user_key.unlocked_keys.len() == 1);
+    assert_eq!(unlocked_user_key.unlocked_keys.len(), 1);
     // Fail
     let key_secret = salts
         .salt_for_key(&srp_provider, &key_id, "password1".as_bytes())
         .unwrap();
     let unlocked_user_key = user_keys.unlock(&provider, &key_secret);
     assert!(unlocked_user_key.unlocked_keys.is_empty());
-    assert!(unlocked_user_key.failed.len() == 1);
+    assert_eq!(unlocked_user_key.failed.len(), 1);
 }
 
 #[test]

@@ -426,7 +426,7 @@ impl<Pub: PublicKey> RecipientPublicKeyModel<Pub> {
             })
             .collect::<Vec<_>>();
 
-        keys_with_order.sort_by(|a, b| a.0.cmp(&b.0));
+        keys_with_order.sort_by_key(|a| a.0);
         keys_with_order.into_iter().map(|(_, key)| key).collect()
     }
 
@@ -450,7 +450,7 @@ impl<Pub: PublicKey> RecipientPublicKeyModel<Pub> {
             })
             .collect::<Vec<_>>();
 
-        keys_with_order.sort_by(|a, b| a.0.cmp(&b.0));
+        keys_with_order.sort_by_key(|a| a.0);
         keys_with_order.into_iter().map(|(_, key)| key).collect()
     }
 }
