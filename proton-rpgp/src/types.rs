@@ -340,19 +340,19 @@ impl Display for PrettyKeyFlags {
         write!(f, "Flags set:")?;
 
         if self.0.authentication() {
-            write!(f, " authentication",)?;
+            write!(f, " authentication")?;
         }
         if self.0.sign() {
-            write!(f, " sign",)?;
+            write!(f, " sign")?;
         }
         if self.0.certify() {
-            write!(f, " certify",)?;
+            write!(f, " certify")?;
         }
         if self.0.encrypt_comms() {
-            write!(f, " encrypt-communications",)?;
+            write!(f, " encrypt-communications")?;
         }
         if self.0.encrypt_storage() {
-            write!(f, " encrypt-storage",)?;
+            write!(f, " encrypt-storage")?;
         }
         Ok(())
     }
