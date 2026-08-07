@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - 2023-00-00
 
+## [0.3.8] - 2026-08-07
+
+### Added
+
+- Optional build env overrides for hermetic Android builds (Bazel/RBE): `GO`, `GOPENPGP_ANDROID_NDK_MARKER`, `GOPENPGP_CLANG_RESOURCE_INCLUDE`, and `GOPENPGP_LIBCLANG_PATH`.
+
 ## [0.3.7] - 2026-07-02
 
 ### Changed
