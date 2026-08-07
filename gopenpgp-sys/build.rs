@@ -130,9 +130,7 @@ fn build_go_lib(
     lib_dir: &Path,
     platform: Platform,
 ) -> BindingEnvironmentArguments {
-    let mut command = Command::new(
-        std::env::var("GO").unwrap_or_else(|_| "go".to_string()),
-    );
+    let mut command = Command::new(std::env::var("GO").unwrap_or_else(|_| "go".to_string()));
     command
         .current_dir("go")
         .env("CGO_ENABLED", "1")
