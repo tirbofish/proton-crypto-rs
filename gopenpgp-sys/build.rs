@@ -94,6 +94,10 @@ fn main() {
     println!("cargo:rustc-link-search={}", lib_dir.to_str().unwrap());
     println!("cargo:rustc-link-lib={GO_LIB_NAME}");
     println!("cargo:rerun-if-changed=go");
+    println!("cargo:rerun-if-env-changed=GO");
+    println!("cargo:rerun-if-env-changed=GOPENPGP_ANDROID_NDK_MARKER");
+    println!("cargo:rerun-if-env-changed=GOPENPGP_CLANG_RESOURCE_INCLUDE");
+    println!("cargo:rerun-if-env-changed=GOPENPGP_LIBCLANG_PATH");
 
     let bindings_env = build_go_lib(&lib_path, &lib_dir, platform);
     generate_bindings_go_for_lib(&lib_dir, &bindings_env);
@@ -219,9 +223,20 @@ fn ndk_home_from_marker(marker: &str) -> Option<(PathBuf, String)> {
 
 fn resolve_android_ndk_home() -> (PathBuf, String) {
     if let Ok(marker) = env::var("GOPENPGP_ANDROID_NDK_MARKER") {
-        if let Some((ndk_home, host_os)) = ndk_home_from_marker(&marker) {
-            if host_os == android_host_prebuilt_os() {
+        match ndk_home_from_marker(&marker) {
+            Some((ndk_home, host_os)) if host_os == android_host_prebuilt_os() => {
                 return (ndk_home, host_os);
+            }
+            Some((_, host_os)) => {
+                eprintln!(
+                    "Warning: GOPENPGP_ANDROID_NDK_MARKER={marker} host prebuilt {host_os} does not match {}",
+                    android_host_prebuilt_os()
+                );
+            }
+            None => {
+                eprintln!(
+                    "Warning: GOPENPGP_ANDROID_NDK_MARKER={marker} is missing or not a valid NDK marker file"
+                );
             }
         }
     }
@@ -248,13 +263,29 @@ fn clang_resource_include_from_env() -> Option<PathBuf> {
 }
 
 /// `GOPENPGP_LIBCLANG_PATH`: path to `libclang.so` (parent is passed to bindgen).
-fn libclang_dir_from_env(ndk_toolchain: &Path) -> String {
+fn libclang_dir_from_env(ndk_toolchain: &Path) -> Option<String> {
     if let Ok(libclang) = env::var("GOPENPGP_LIBCLANG_PATH") {
-        if let Some(parent) = PathBuf::from(libclang).parent() {
-            return parent.to_string_lossy().into_owned();
+        let path = PathBuf::from(&libclang);
+        if path.is_file() {
+            if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+                return Some(parent.to_string_lossy().into_owned());
+            }
+            eprintln!(
+                "Warning: GOPENPGP_LIBCLANG_PATH={libclang} has no parent directory; ignoring"
+            );
+        } else {
+            eprintln!("Warning: GOPENPGP_LIBCLANG_PATH={libclang} is not a file; ignoring");
         }
     }
-    ndk_toolchain.join("lib").to_string_lossy().into_owned()
+
+    for lib_dir in ["lib", "lib64"] {
+        let dir = ndk_toolchain.join(lib_dir);
+        if dir.join("libclang.so").is_file() || dir.join("libclang.dylib").is_file() {
+            return Some(dir.to_string_lossy().into_owned());
+        }
+    }
+
+    None
 }
 
 fn android_bindgen_clang_args(
@@ -334,7 +365,7 @@ fn prepare_go_lib_build_android(
         .to_owned();
     let lib_clang_path = libclang_dir_from_env(&ndk_toolchain);
     BindingEnvironmentArguments {
-        lib_clang_path: Some(lib_clang_path),
+        lib_clang_path,
         clang_args: android_bindgen_clang_args(
             &ndk_toolchain,
             &sys_root,
