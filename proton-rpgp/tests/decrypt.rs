@@ -194,6 +194,44 @@ pub fn decrypt_and_verify_encrypted_message_v4_multi_key_packets() {
 
 #[test]
 #[allow(clippy::missing_panics_doc)]
+pub fn decrypt_message_v4_prefers_pkesk_over_skesk() {
+    const SKESK_BEFORE_PKESK_MESSAGE: &str =
+        include_str!("../test-data/messages/encrypted_message_v4_skesk_before_pkesk.asc");
+    let key = PrivateKey::import_unlocked(TEST_KEY.as_bytes(), DataEncoding::Armored)
+        .expect("Failed to import key");
+
+    let verified_data = Decryptor::default()
+        .with_decryption_key(&key)
+        .with_passphrase("password")
+        .decrypt(SKESK_BEFORE_PKESK_MESSAGE, DataEncoding::Armored)
+        .expect("Failed to decrypt");
+
+    assert_eq!(verified_data.data, b"hello world");
+
+    let failed_decryption = Decryptor::default()
+        .with_passphrase("password")
+        .decrypt(SKESK_BEFORE_PKESK_MESSAGE, DataEncoding::Armored)
+        .expect_err("Should fail to decrypt");
+
+    assert!(matches!(
+        failed_decryption,
+        Error::Decryption(DecryptionError::InvalidSessionKey(_))
+    ));
+    assert_eq!(
+        failed_decryption.to_string(),
+        "Proton-rPGP: Failed to decrypt with session key: IO error: Modification Detection Code error"
+    );
+
+    let verified_data = Decryptor::default()
+        .with_passphrase("other-password")
+        .decrypt(SKESK_BEFORE_PKESK_MESSAGE, DataEncoding::Armored)
+        .expect("Failed to decrypt");
+
+    assert_eq!(verified_data.data, b"hello world");
+}
+
+#[test]
+#[allow(clippy::missing_panics_doc)]
 pub fn decrypt_and_verify_encrypted_message_v4_multiple_keys() {
     const INPUT_DATA: &str = include_str!("../test-data/messages/encrypted_message_v4.asc");
     let date = UnixTime::new(1_752_650_039);

@@ -88,6 +88,13 @@ impl<'a> Decryptor<'a> {
     }
 
     /// Adds multiple passphrases to the decryptor to decrypt the message with.
+    ///
+    /// ## WARNING
+    ///
+    /// When proving multiple passphrases, the decryptor will use the first successfully decrypted session key from a SKESK packet.
+    /// In `SKESKv4`, there is approximately a 1-5% chance that an incorrect passphrase may appear to successfully decrypt a session key,
+    /// which can cause decryption to proceed but fail later due to corrupted output.
+    /// To minimize this risk, consider using a separate [`Decryptor`] for each passphrase if you are unsure.
     pub fn with_passphrases(
         mut self,
         passphrases: impl IntoIterator<Item = impl AsRef<[u8]>>,
@@ -365,6 +372,8 @@ impl<'a> Decryptor<'a> {
     ) -> crate::Result<SessionKey> {
         let mut errors = Vec::new();
         let mut passphrase_decryption_trials = 0;
+        let mut skesk_decrypted = None;
+
         for esk_packet in esk_packets {
             match esk_packet.as_ref() {
                 Esk::PublicKeyEncryptedSessionKey(pkesk) => {
@@ -379,6 +388,9 @@ impl<'a> Decryptor<'a> {
                     }
                 }
                 Esk::SymKeyEncryptedSessionKey(skesk) => {
+                    if skesk_decrypted.is_some() {
+                        continue;
+                    }
                     if self.passphrases.is_empty() {
                         errors.push(DecryptionError::NoPassphraseForSkesk);
                         continue;
@@ -393,13 +405,19 @@ impl<'a> Decryptor<'a> {
                     }
                     for passphrase in &*self.passphrases {
                         match decrypt_session_key_with_password(skesk, passphrase) {
-                            Ok(session_key) => return Ok(session_key.into()),
+                            Ok(session_key) => {
+                                skesk_decrypted = Some(session_key.into());
+                            }
                             Err(err) => errors.push(DecryptionError::SkeskDecryption(err)),
                         }
                     }
                     passphrase_decryption_trials += 1;
                 }
             }
+        }
+
+        if let Some(skesk_decrypted) = skesk_decrypted {
+            return Ok(skesk_decrypted);
         }
 
         if errors.is_empty() {
