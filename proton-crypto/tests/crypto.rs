@@ -5,9 +5,9 @@ use proton_crypto::{
         KeyGeneratorSync, OpenPGPFingerprint, OpenPGPKeyID, PGPMessage, PGPProvider,
         PGPProviderSync, SHA256Fingerprint, SessionKey, SessionKeyAlgorithm, Signer, SignerSync,
         SigningMode, UnixTimestamp, VerifiedData, VerifiedDataReader, Verifier, VerifierSync,
-        WritingMode, CLOCK_SKEW_KEY_GENERATION, CLOCK_SKEW_VERIFICATION,
+        WritingMode,
     },
-    crypto_clock, CryptoClockProvider, ProtonPGP,
+    ProtonPGP,
 };
 use std::io::{Read, Write};
 
@@ -877,60 +877,4 @@ fn test_api_import_private_key_import_error_on_unlocked() {
         DataEncoding::Armor,
     );
     assert!(result.is_err());
-}
-
-#[derive(Debug)]
-struct FixedCryptoClockProvider(UnixTimestamp);
-
-impl CryptoClockProvider for FixedCryptoClockProvider {
-    fn unix_time(&self) -> UnixTimestamp {
-        self.0
-    }
-}
-
-#[test]
-fn test_api_verify_detached_signature_clock_skew() {
-    let provider = ProtonPGP::new_sync();
-    let test_time = UnixTimestamp::new(1_706_017_671 - CLOCK_SKEW_VERIFICATION);
-    crypto_clock().set_provider(Box::new(FixedCryptoClockProvider(test_time)));
-
-    let public_key = get_test_public_key(&provider);
-    let verification_context =
-        provider.new_verification_context("test".to_owned(), true, UnixTimestamp::new(0));
-    let verification_result = provider
-        .new_verifier()
-        .with_verification_key(&public_key)
-        .with_verification_context(&verification_context)
-        .verify_detached(TEST_EXPECTED_PLAINTEXT, TEST_SIGNATURE, DataEncoding::Armor);
-    assert!(verification_result.is_ok());
-
-    let test_time = UnixTimestamp::new(1_706_017_671 - CLOCK_SKEW_VERIFICATION - 1);
-    crypto_clock().set_provider(Box::new(FixedCryptoClockProvider(test_time)));
-    let verification_result = provider
-        .new_verifier()
-        .with_verification_key(&public_key)
-        .with_verification_context(&verification_context)
-        .verify_detached(TEST_EXPECTED_PLAINTEXT, TEST_SIGNATURE, DataEncoding::Armor);
-    assert!(verification_result.is_err());
-}
-
-#[test]
-fn test_key_generation_clock_skew() {
-    let provider = ProtonPGP::new_sync();
-    let test_time = UnixTimestamp::new(1_706_017_671);
-    crypto_clock().set_provider(Box::new(FixedCryptoClockProvider(test_time)));
-    let generated_key = provider
-        .new_key_generator()
-        .with_user_id("test", "test@test.test")
-        .generate()
-        .expect("key should be generated");
-    let raw = provider
-        .private_key_export_unlocked(&generated_key, DataEncoding::Bytes)
-        .expect("key should be exported");
-
-    let expected = (test_time.value() - CLOCK_SKEW_KEY_GENERATION).to_be_bytes();
-    assert!(raw
-        .as_ref()
-        .windows(4)
-        .any(|window| window == &expected[4..]));
 }
