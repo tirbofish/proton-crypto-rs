@@ -96,7 +96,35 @@ impl KeyGenerator {
     ///     .unwrap();
     /// ```
     pub fn generate(self) -> crate::Result<PrivateKey> {
-        let mut rng = self.profile.rng();
+        let rng = self.profile.rng();
+        self.generate_with_rng(rng)
+    }
+
+    /// Generate a `OpenPGP` private key for the given generation configuration and CSPRNG.
+    ///
+    /// # Warning
+    ///
+    /// The randomness source is security critical and must be provided by a cryptographically secure random number generator.
+    /// If unsure, use [`Self::generate`] instead.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use rand::rngs::OsRng;
+    /// use proton_rpgp::{KeyGenerator, KeyGenerationType};
+    ///
+    /// let mut rng = OsRng;
+    ///
+    /// let key = KeyGenerator::default()
+    ///     .with_user_id("test", "test@test.test")
+    ///     .with_key_type(KeyGenerationType::ECC)
+    ///     .generate_with_rng(&mut rng)
+    ///     .unwrap();
+    /// ```
+    pub fn generate_with_rng<R>(self, mut rng: R) -> crate::Result<PrivateKey>
+    where
+        R: Rng + CryptoRng,
+    {
         let key_generation_options = self.algorithm.key_generation_profile(&self.profile);
         let preferred_hash = self.profile.key_hash_algorithm();
         let (primary_user_id, non_primary_user_ids) =
