@@ -171,6 +171,12 @@ pub enum KeyOperationError {
     #[error("Failed to decode OpenPGP key: {0}")]
     Decode(pgp::errors::Error),
 
+    #[error("Failed to find OpenPGP key")]
+    DecodeNotFound,
+
+    #[error("Multiple keys found in the input")]
+    DecodeMultipleKeys,
+
     #[error("Key is locked")]
     Locked,
 
