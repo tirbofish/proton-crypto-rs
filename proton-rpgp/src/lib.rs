@@ -9,7 +9,7 @@ mod types;
 mod verify;
 
 pub mod armor;
-
+pub mod forward;
 /// Re-export the `pgp` crate.
 pub use pgp;
 

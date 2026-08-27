@@ -781,6 +781,36 @@ fn check_key_requirements(
     }
 }
 
+pub(crate) fn check_subkey_for_forwarding<K>(
+    sub_key: &SignedSecretSubKey,
+    primary_key: &K,
+    encryption_date: CheckUnixTime,
+    profile: &Profile,
+) -> Result<(), KeyValidationError>
+where
+    K: VerifyingKey + Serialize,
+{
+    // Check subkey certifications.
+    let sub_key_self_certification = sub_key
+        .check_validity(primary_key, encryption_date, profile)
+        .map_err(KeyValidationError::KeySelfCertification)?;
+
+    // Check if the subkey is a valid encryption key.
+    check_valid_encryption_key(
+        sub_key.public_key(),
+        sub_key_self_certification,
+        profile,
+        CheckMode::Encryption,
+    )
+    .map_err(|err| KeyValidationError::SubkeyRequirement(sub_key.legacy_key_id(), err))?;
+
+    // Check key requirements enforced by the profile.
+    check_key_requirements(sub_key.public_key(), profile)
+        .map_err(|err| KeyValidationError::SubkeyRequirement(sub_key.legacy_key_id(), err))?;
+
+    Ok(())
+}
+
 impl PublicKeySelectionExt for SignedPublicKey {
     fn primary_key(&self) -> &packet::PublicKey {
         &self.primary_key

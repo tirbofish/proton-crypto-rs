@@ -1,9 +1,14 @@
 use std::fmt::Display;
 
 use pgp::{
-    composed::{SignedSecretKey, SignedSecretSubKey},
+    composed::{KeyType, SignedSecretKey, SignedSecretSubKey},
+    crypto::{ecc_curve::ECCCurve, hash::HashAlgorithm, sym::SymmetricKeyAlgorithm},
     packet::{self, KeyFlags, PubKeyInner, UserId},
-    types::{KeyVersion, PacketHeaderVersion},
+    ser::Serialize,
+    types::{
+        EcdhKdfType, EcdhPublicParams, Fingerprint, KeyVersion, PacketHeaderVersion, PublicParams,
+        SigningKey, VerifyingKey,
+    },
 };
 use rand::{CryptoRng, Rng};
 
@@ -13,8 +18,8 @@ use crate::{
 };
 
 /// Internal representation of a user-id.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct KeyUserId {
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct KeyUserId {
     pub name: String,
     pub email: String,
 }
@@ -142,13 +147,23 @@ impl KeyGenerator {
             primary_flags,
         );
 
-        let (primary_secret_key, primary_pub_key) =
-            generate_primary_key(self.algorithm, key_version, self.date, &mut rng)?;
+        let (primary_secret_key, primary_pub_key) = generate_primary_key(
+            self.algorithm.primary_key_type(),
+            key_version,
+            self.date,
+            &mut rng,
+        )?;
 
         // Generate a single subkey for encryption.
-        let subkey_flags = encryption_subkey_flags();
-        let (subkey_secret, subkey_public) =
-            generate_encryption_subkey(self.algorithm, key_version, self.date, &mut rng)?;
+        let signed_subkey_secret = generate_encryption_subkey_and_sign(
+            &primary_secret_key,
+            &primary_pub_key,
+            self.algorithm,
+            key_version,
+            self.date,
+            &mut rng,
+            &self.profile,
+        )?;
 
         // Create all self-certifications.
         let signed_key_details = key_details_config.sign_with(
@@ -159,20 +174,6 @@ impl KeyGenerator {
             &mut rng,
             &self.profile,
         )?;
-
-        let subkey_binding_signature = subkey_public.sign_with(
-            &primary_secret_key,
-            &primary_pub_key,
-            self.date,
-            preferred_hash,
-            subkey_flags,
-            None,
-            &mut rng,
-            &self.profile,
-        )?;
-
-        let signed_subkey_secret =
-            SignedSecretSubKey::new(subkey_secret, vec![subkey_binding_signature]);
 
         let signed_secret_key = SignedSecretKey::new(
             primary_secret_key,
@@ -191,17 +192,17 @@ impl Default for KeyGenerator {
     }
 }
 
-fn generate_primary_key(
-    algorithm: KeyGenerationType,
+#[allow(clippy::needless_pass_by_value)]
+pub(crate) fn generate_primary_key(
+    key_type: KeyType,
     key_version: KeyVersion,
     date: UnixTime,
     rng: impl Rng + CryptoRng,
 ) -> Result<(packet::SecretKey, packet::PublicKey), KeyGenerationError> {
-    let (primary_public_params, primary_secret_params) =
-        algorithm.primary_key_type().generate(rng)?;
+    let (primary_public_params, primary_secret_params) = key_type.generate(rng)?;
     let pub_key = PubKeyInner::new(
         key_version,
-        algorithm.primary_key_type().to_alg(),
+        key_type.to_alg(),
         date.into(),
         None,
         primary_public_params,
@@ -212,14 +213,22 @@ fn generate_primary_key(
     Ok((primary_secret_key, primary_pub_key))
 }
 
-fn generate_encryption_subkey(
+fn generate_encryption_subkey_and_sign<K, P, R>(
+    primary_secret_key: &K,
+    primary_pub_key: &P,
     algorithm: KeyGenerationType,
     key_version: KeyVersion,
     date: UnixTime,
-    rng: impl Rng + CryptoRng,
-) -> Result<(packet::SecretSubkey, packet::PublicSubkey), KeyGenerationError> {
+    mut rng: R,
+    profile: &Profile,
+) -> Result<SignedSecretSubKey, KeyGenerationError>
+where
+    K: SigningKey,
+    P: VerifyingKey + Serialize,
+    R: CryptoRng + Rng,
+{
     let (subkey_public_params, subkey_secret_params) =
-        algorithm.encryption_key_type().generate(rng)?;
+        algorithm.encryption_key_type().generate(&mut rng)?;
     let pub_key = PubKeyInner::new(
         key_version,
         algorithm.encryption_key_type().to_alg(),
@@ -229,7 +238,96 @@ fn generate_encryption_subkey(
     )?;
     let subkey_public = packet::PublicSubkey::from_inner(pub_key)?;
     let subkey_secret = packet::SecretSubkey::new(subkey_public.clone(), subkey_secret_params)?;
-    Ok((subkey_secret, subkey_public))
+
+    let subkey_flags = encryption_subkey_flags();
+    let preferred_hash = profile.key_hash_algorithm();
+    let subkey_binding_signature = subkey_public.sign_with(
+        primary_secret_key,
+        primary_pub_key,
+        date,
+        preferred_hash,
+        subkey_flags,
+        None,
+        &mut rng,
+        profile,
+    )?;
+
+    let signed_subkey_secret =
+        SignedSecretSubKey::new(subkey_secret, vec![subkey_binding_signature]);
+    Ok(signed_subkey_secret)
+}
+
+#[allow(clippy::needless_pass_by_value)]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn generate_forwarding_encryption_subkey_and_sign<K, P, R>(
+    primary_secret_key: &K,
+    primary_pub_key: &P,
+    forwarder_fingerprint: Fingerprint,
+    forwarder_kdf_hash: HashAlgorithm,
+    forwarder_kdf_alg_sym: SymmetricKeyAlgorithm,
+    date: UnixTime,
+    mut rng: R,
+    profile: &Profile,
+) -> Result<SignedSecretSubKey, KeyGenerationError>
+where
+    K: SigningKey,
+    P: VerifyingKey + Serialize,
+    R: CryptoRng + Rng,
+{
+    let (mut subkey_public_params, subkey_secret_params) =
+        KeyType::ECDH(ECCCurve::Curve25519Legacy).generate(&mut rng)?;
+
+    let PublicParams::ECDH(EcdhPublicParams::Curve25519Legacy {
+        ref mut hash,
+        ref mut alg_sym,
+        ref mut ecdh_kdf_type,
+        ..
+    }) = subkey_public_params
+    else {
+        return Err(KeyGenerationError::InvalidState("expected ECDH/Curve25519"));
+    };
+
+    *hash = forwarder_kdf_hash;
+    *alg_sym = forwarder_kdf_alg_sym;
+
+    let Fingerprint::V4(replacement_fingerprint) = forwarder_fingerprint else {
+        return Err(KeyGenerationError::InvalidState("expected v4 fingerprint"));
+    };
+
+    *ecdh_kdf_type = EcdhKdfType::Replaced {
+        replacement_fingerprint,
+    };
+
+    let pub_key = PubKeyInner::new(
+        KeyVersion::V4,
+        KeyType::ECDH(ECCCurve::Curve25519Legacy).to_alg(),
+        date.into(),
+        None,
+        subkey_public_params,
+    )?;
+
+    let subkey_public = packet::PublicSubkey::from_inner(pub_key)?;
+    let subkey_secret = packet::SecretSubkey::new(subkey_public.clone(), subkey_secret_params)?;
+
+    let mut subkey_flags = KeyFlags::default();
+    subkey_flags.set_shared(true);
+    subkey_flags.set_draft_decrypt_forwarded(true);
+    let preferred_hash = profile.key_hash_algorithm();
+
+    let subkey_binding_signature = subkey_public.sign_with(
+        primary_secret_key,
+        primary_pub_key,
+        date,
+        preferred_hash,
+        subkey_flags,
+        None,
+        &mut rng,
+        profile,
+    )?;
+
+    let signed_subkey_secret =
+        SignedSecretSubKey::new(subkey_secret, vec![subkey_binding_signature]);
+    Ok(signed_subkey_secret)
 }
 
 pub(crate) fn primary_key_flags() -> KeyFlags {

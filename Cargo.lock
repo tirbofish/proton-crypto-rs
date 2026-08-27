@@ -2201,6 +2201,7 @@ dependencies = [
  "smallvec",
  "thiserror 1.0.69",
  "web-time",
+ "x25519-dalek",
  "zeroize",
 ]
 

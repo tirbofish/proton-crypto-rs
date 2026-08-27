@@ -4,7 +4,7 @@ use pgp::{
     armor::BlockType,
     crypto::{ecc_curve::ECCCurve, hash::HashAlgorithm, public_key::PublicKeyAlgorithm},
     packet::{self},
-    types::{KeyId, PkeskVersion},
+    types::{KeyId, KeyVersion, PkeskVersion},
 };
 
 use crate::{
@@ -55,6 +55,12 @@ pub enum Error {
 
     #[error("{LIB_ERROR_PREFIX}: {0}")]
     VerificationResultUtility(#[from] VerificationResultUtilityError),
+
+    #[error("{LIB_ERROR_PREFIX}: {0}")]
+    ForwardingPkesk(#[from] ForwardingPkeskError),
+
+    #[error("{LIB_ERROR_PREFIX}: {0}")]
+    ForwardingKeygeneration(#[from] ForwardingKeyGenerationError),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -293,6 +299,9 @@ pub enum KeyGenerationError {
 
     #[error("Failed to self-sign key: {0}")]
     Signing(#[from] SigningError),
+
+    #[error("Invalid state in key generation: {0}")]
+    InvalidState(&'static str),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -572,6 +581,69 @@ pub enum TextSanitizationError {
 pub enum VerificationResultUtilityError {
     #[error("Failed to serialize signature bytes: {0}")]
     SignatureBytes(#[from] pgp::errors::Error),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ForwardingPkeskError {
+    #[error("Invalid PKESK version for forwarding: {0:?}")]
+    VersionMismatch(PkeskVersion),
+
+    #[error("Invalid PKESK algorithm for forwarding: {0:?}")]
+    AlgorithmMismatch(PublicKeyAlgorithm),
+
+    #[error("Failed to parse PKESK for forwarding: {0}")]
+    Parsing(pgp::errors::Error),
+
+    #[error("Forwarding requires v4 keys, got a fingerprint of version {0:?}")]
+    UnsupportedKeyVersion(Option<KeyVersion>),
+
+    #[error("No forwarding instance matches the PKESK recipient key id {0}")]
+    NoMatchingInstance(KeyId),
+
+    #[error("Failed to encode the forwarded PKESK: {0}")]
+    Encode(pgp::errors::Error),
+
+    #[error("Failed to transform PKESK with proxy parameter: {0}")]
+    ProxyTansform(pgp::errors::Error),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ForwardingKeyGenerationError {
+    #[error("Invalid key version to create a forwarding key from, version {0}")]
+    VersionMismatch(u8),
+
+    #[error("Unable to get the time")]
+    UnableToGetTime,
+
+    #[error("Failed to vailidate key from forwarding: {0}")]
+    KeyValidation(#[from] ForwardingKeyValidation),
+
+    #[error("Failed to find a valid encryption sub-key for forwarding: {0}")]
+    SubKeyValidation(ErrorList<ForwardingKeyValidation>),
+
+    #[error("Failed to generate forwarding sub-key: {0}")]
+    GenerationSubkey(KeyGenerationError),
+
+    #[error("Failed to generate forwarding primary key: {0}")]
+    GenerationPrimary(KeyGenerationError),
+
+    #[error("Failed to generate forwarding proxy parameter: {0}")]
+    ProxyParamGeneration(pgp::errors::Error),
+
+    #[error("Failed to create user id: {0}")]
+    UserID(#[from] UserIdError),
+
+    #[error("Failed to create user id: {0}")]
+    ForwardingParamsValidation(#[from] ForwardingPkeskError),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ForwardingKeyValidation {
+    #[error("Failed to vailidate key for forwarding: {0}")]
+    KeyValidation(#[from] KeyValidationError),
+
+    #[error("Algorithm invalid for forwarding: {0:?}")]
+    SubKeyNoMatchingAlgorithm(PublicKeyAlgorithm),
 }
 
 #[derive(Debug)]

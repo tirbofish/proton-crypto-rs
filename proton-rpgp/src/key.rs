@@ -397,7 +397,7 @@ impl AsPublicKeyRef for PrivateKey {
 }
 
 impl PrivateKey {
-    fn new(secret: SignedSecretKey) -> Self {
+    pub(crate) fn new(secret: SignedSecretKey) -> Self {
         let signed_public = SignedPublicKey::from(secret.clone());
         Self {
             public: PublicKey {

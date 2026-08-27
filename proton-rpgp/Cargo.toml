@@ -18,6 +18,8 @@ smallvec = "1.10.0"
 kem = "=0.3.0-pre.0" # pinned to avoid automatic update in downstream project. 
 web-time = { workspace = true }
 nom = "8.0"
+# For forwarding
+x25519-dalek = { version = "2.0.1", default-features = false }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 pgp = { version = "0.20.0", default-features = false, features = ["draft-pqc", "malformed-artifact-compat", "draft-wussler-openpgp-forwarding", "large-rsa", "wasm"] }

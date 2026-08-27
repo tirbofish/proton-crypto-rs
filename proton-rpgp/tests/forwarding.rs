@@ -1,5 +1,7 @@
+use pgp::ser::Serialize;
 use proton_rpgp::{
-    AsPublicKeyRef, DataEncoding, Decryptor, Encryptor, PrivateKey, Profile, UnixTime,
+    forward::ForwardingPkesk, AsPublicKeyRef, DataEncoding, Decryptor, Encryptor, KeyUserId,
+    PrivateKey, Profile, UnixTime,
 };
 
 const FORWARDEE_KEY: &str = include_str!("../test-data/keys/private_key_v4_forwardee.asc");
@@ -7,6 +9,8 @@ const FORWARDED_MESSAGE: &str =
     include_str!("../test-data/messages/encrypted_message_v4_forwarded.asc");
 const SIGN_ONLY_KEY: &str = include_str!("../test-data/keys/private_key_v4_sign_only.asc");
 const REGULAR_KEY: &str = include_str!("../test-data/keys/private_key_v4.asc");
+
+pub const TEST_KEY_V4: &str = include_str!("../test-data/keys/private_key_v4.asc");
 
 #[test]
 #[allow(clippy::missing_panics_doc)]
@@ -88,4 +92,53 @@ pub fn forwarding_detection_negative_cases() {
     let sign_only = PrivateKey::import_unlocked(SIGN_ONLY_KEY.as_bytes(), DataEncoding::Armored)
         .expect("Failed to import key");
     assert!(!sign_only.is_forwarding_key(&profile));
+}
+
+#[test]
+#[allow(clippy::missing_panics_doc)]
+pub fn forwarding_full() {
+    let profile = Profile::default();
+    let date = UnixTime::new(1_787_919_498);
+    let msg = "hello";
+
+    let forwarder = PrivateKey::import_unlocked(TEST_KEY_V4.as_bytes(), DataEncoding::Armored)
+        .expect("Failed to import key");
+
+    let encrypted = Encryptor::default()
+        .with_encryption_key(forwarder.as_public_key())
+        .encrypt(msg.as_bytes())
+        .unwrap();
+
+    let encrypted_bytes = encrypted.to_bytes().unwrap();
+
+    let user_id = KeyUserId {
+        name: "forwardee@examle.com".to_owned(),
+        email: "forwardee@examle.com".to_owned(),
+    };
+
+    let (forwardee_key, instances) = forwarder
+        .generate_forwarding_key(Some(date), &user_id, &profile)
+        .expect("Genration should succeed");
+
+    let pkesk = ForwardingPkesk::from_bytes(encrypted.as_key_packets_unchecked()).unwrap();
+
+    let forwarded = pkesk.proxy_forward(&instances).unwrap();
+
+    let mut forwarded_msg = forwarded.to_vec().unwrap();
+    forwarded_msg.extend_from_slice(encrypted.as_data_packet_unchecked());
+
+    let decrypted = Decryptor::default()
+        .allow_forwarding_decryption(true)
+        .with_decryption_key(&forwardee_key)
+        .decrypt(forwarded_msg, DataEncoding::Unarmored)
+        .unwrap();
+
+    assert_eq!(decrypted.data, msg.as_bytes());
+
+    // Old message decryption fails
+    Decryptor::default()
+        .allow_forwarding_decryption(true)
+        .with_decryption_key(&forwardee_key)
+        .decrypt(encrypted_bytes, DataEncoding::Unarmored)
+        .expect_err("decryption should fail");
 }
