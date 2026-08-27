@@ -30,6 +30,9 @@ pub(crate) use selection::*;
 pub(crate) mod preferences;
 pub use preferences::EncryptionMechanism;
 
+pub(crate) mod import;
+pub(crate) use import::*;
+
 mod generation;
 pub use generation::*;
 
@@ -103,11 +106,9 @@ impl PublicKey {
     pub fn import(key_data: &[u8], encoding: DataEncoding) -> crate::Result<Self> {
         let resolved_encoding = encoding.resolve_for_read(key_data);
         let signed_public_key = match resolved_encoding {
-            ResolvedDataEncoding::Armored => SignedPublicKey::from_armor_single(key_data)
-                .map_err(KeyOperationError::Decode)
-                .map(|(signed_public, _)| signed_public)?,
+            ResolvedDataEncoding::Armored => SignedPublicKey::from_armor_single_enforce(key_data)?,
             ResolvedDataEncoding::Unarmored => {
-                SignedPublicKey::from_bytes(key_data).map_err(KeyOperationError::Decode)?
+                SignedPublicKey::from_bytes_single_enforce(key_data)?
             }
         };
 
@@ -274,11 +275,9 @@ impl LockedPrivateKey {
     pub fn import(key_data: &[u8], encoding: DataEncoding) -> crate::Result<Self> {
         let resolved_encoding = encoding.resolve_for_read(key_data);
         let secret = match resolved_encoding {
-            ResolvedDataEncoding::Armored => SignedSecretKey::from_armor_single(key_data)
-                .map_err(KeyOperationError::Decode)
-                .map(|(secret, _)| secret)?,
+            ResolvedDataEncoding::Armored => SignedSecretKey::from_armor_single_enforce(key_data)?,
             ResolvedDataEncoding::Unarmored => {
-                SignedSecretKey::from_bytes(key_data).map_err(KeyOperationError::Decode)?
+                SignedSecretKey::from_bytes_single_enforce(key_data)?
             }
         };
         Ok(Self::new(secret))
