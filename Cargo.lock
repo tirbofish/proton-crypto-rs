@@ -2139,6 +2139,7 @@ dependencies = [
  "facet",
  "gopenpgp-sys",
  "hex",
+ "jiff",
  "parking_lot",
  "proton-rpgp",
  "proton-srp",
