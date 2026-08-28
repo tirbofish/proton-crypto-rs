@@ -57,10 +57,13 @@ pub enum Error {
     VerificationResultUtility(#[from] VerificationResultUtilityError),
 
     #[error("{LIB_ERROR_PREFIX}: {0}")]
-    ForwardingPkesk(#[from] ForwardingPkeskError),
+    ForwardingTransform(#[from] ForwardingTransformError),
 
     #[error("{LIB_ERROR_PREFIX}: {0}")]
-    ForwardingKeygeneration(#[from] ForwardingKeyGenerationError),
+    ForwardingInstance(#[from] ForwardingInstanceError),
+
+    #[error("{LIB_ERROR_PREFIX}: {0}")]
+    ForwardingKeyGeneration(#[from] ForwardingKeyGenerationError),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -583,8 +586,9 @@ pub enum VerificationResultUtilityError {
     SignatureBytes(#[from] pgp::errors::Error),
 }
 
+/// Errors raised while transforming a PKESK for a forwardee.
 #[derive(Debug, thiserror::Error)]
-pub enum ForwardingPkeskError {
+pub enum ForwardingTransformError {
     #[error("Invalid PKESK version for forwarding: {0:?}")]
     VersionMismatch(PkeskVersion),
 
@@ -594,8 +598,11 @@ pub enum ForwardingPkeskError {
     #[error("Failed to parse PKESK for forwarding: {0}")]
     Parsing(pgp::errors::Error),
 
-    #[error("Forwarding requires v4 keys, got a fingerprint of version {0:?}")]
-    UnsupportedKeyVersion(Option<KeyVersion>),
+    #[error("No PKESK packet found in the input")]
+    NoPkeskFound,
+
+    #[error("Multiple PKESK packets found in the input")]
+    MultiplePkesks,
 
     #[error("No forwarding instance matches the PKESK recipient key id {0}")]
     NoMatchingInstance(KeyId),
@@ -604,9 +611,20 @@ pub enum ForwardingPkeskError {
     Encode(pgp::errors::Error),
 
     #[error("Failed to transform PKESK with proxy parameter: {0}")]
-    ProxyTansform(pgp::errors::Error),
+    ProxyTransform(pgp::errors::Error),
 }
 
+/// Errors raised while constructing a forwarding instance.
+#[derive(Debug, thiserror::Error)]
+pub enum ForwardingInstanceError {
+    #[error("Forwarding requires v4 keys, got a forwarder fingerprint of version {0:?}")]
+    UnsupportedForwarderKeyVersion(Option<KeyVersion>),
+
+    #[error("Forwarding requires v4 keys, got a forwardee fingerprint of version {0:?}")]
+    UnsupportedForwardeeKeyVersion(Option<KeyVersion>),
+}
+
+/// Errors raised while generating a forwarding key.
 #[derive(Debug, thiserror::Error)]
 pub enum ForwardingKeyGenerationError {
     #[error("Invalid key version to create a forwarding key from, version {0}")]
@@ -615,11 +633,17 @@ pub enum ForwardingKeyGenerationError {
     #[error("Unable to get the time")]
     UnableToGetTime,
 
-    #[error("Failed to vailidate key from forwarding: {0}")]
-    KeyValidation(#[from] ForwardingKeyValidation),
+    #[error("No user id provided")]
+    NoUserId,
+
+    #[error("Failed to validate the forwarder key for forwarding: {0}")]
+    KeyValidation(#[from] ForwardingKeyValidationError),
 
     #[error("Failed to find a valid encryption sub-key for forwarding: {0}")]
-    SubKeyValidation(ErrorList<ForwardingKeyValidation>),
+    SubKeyValidation(ErrorList<ForwardingKeyValidationError>),
+
+    #[error("No subkeys found")]
+    NoSubkeys,
 
     #[error("Failed to generate forwarding sub-key: {0}")]
     GenerationSubkey(KeyGenerationError),
@@ -631,19 +655,23 @@ pub enum ForwardingKeyGenerationError {
     ProxyParamGeneration(pgp::errors::Error),
 
     #[error("Failed to create user id: {0}")]
-    UserID(#[from] UserIdError),
+    UserId(#[from] UserIdError),
 
-    #[error("Failed to create user id: {0}")]
-    ForwardingParamsValidation(#[from] ForwardingPkeskError),
+    #[error("Failed to create the forwarding instance: {0}")]
+    Instance(#[from] ForwardingInstanceError),
 }
 
+/// Errors raised while checking that a key is eligible for forwarding.
 #[derive(Debug, thiserror::Error)]
-pub enum ForwardingKeyValidation {
-    #[error("Failed to vailidate key for forwarding: {0}")]
+pub enum ForwardingKeyValidationError {
+    #[error("Failed to validate key for forwarding: {0}")]
     KeyValidation(#[from] KeyValidationError),
 
     #[error("Algorithm invalid for forwarding: {0:?}")]
     SubKeyNoMatchingAlgorithm(PublicKeyAlgorithm),
+
+    #[error("Forwarding requires v4 sub-keys, got a fingerprint of version {0:?}")]
+    SubKeyUnsupportedKeyVersion(Option<KeyVersion>),
 }
 
 #[derive(Debug)]

@@ -1,7 +1,7 @@
 use pgp::ser::Serialize;
 use proton_rpgp::{
-    forward::ForwardingPkesk, AsPublicKeyRef, DataEncoding, Decryptor, Encryptor, KeyUserId,
-    PrivateKey, Profile, UnixTime,
+    AsPublicKeyRef, DataEncoding, Decryptor, Encryptor, ForwardingPkesk, PrivateKey, Profile,
+    UnixTime,
 };
 
 const FORWARDEE_KEY: &str = include_str!("../test-data/keys/private_key_v4_forwardee.asc");
@@ -97,7 +97,6 @@ pub fn forwarding_detection_negative_cases() {
 #[test]
 #[allow(clippy::missing_panics_doc)]
 pub fn forwarding_full() {
-    let profile = Profile::default();
     let date = UnixTime::new(1_787_919_498);
     let msg = "hello";
 
@@ -111,14 +110,12 @@ pub fn forwarding_full() {
 
     let encrypted_bytes = encrypted.to_bytes().unwrap();
 
-    let user_id = KeyUserId {
-        name: "forwardee@examle.com".to_owned(),
-        email: "forwardee@examle.com".to_owned(),
-    };
-
     let (forwardee_key, instances) = forwarder
-        .generate_forwarding_key(Some(date), &user_id, &profile)
-        .expect("Genration should succeed");
+        .forwarding_key_generator()
+        .with_user_id("forwardee@example.com", "forwardee@example.com")
+        .at_date(date)
+        .generate()
+        .expect("Generation should succeed");
 
     let pkesk = ForwardingPkesk::from_bytes(encrypted.as_key_packets_unchecked()).unwrap();
 

@@ -2,12 +2,10 @@ use std::fmt::Display;
 
 use pgp::{
     composed::{KeyType, SignedSecretKey, SignedSecretSubKey},
-    crypto::{ecc_curve::ECCCurve, hash::HashAlgorithm, sym::SymmetricKeyAlgorithm},
     packet::{self, KeyFlags, PubKeyInner, UserId},
     ser::Serialize,
     types::{
-        EcdhKdfType, EcdhPublicParams, Fingerprint, KeyVersion, PacketHeaderVersion, PublicParams,
-        SigningKey, VerifyingKey,
+        KeyVersion, PacketHeaderVersion, PublicParams, SecretParams, SigningKey, VerifyingKey,
     },
 };
 use rand::{CryptoRng, Rng};
@@ -19,7 +17,7 @@ use crate::{
 
 /// Internal representation of a user-id.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct KeyUserId {
+pub(crate) struct KeyUserId {
     pub name: String,
     pub email: String,
 }
@@ -155,12 +153,16 @@ impl KeyGenerator {
         )?;
 
         // Generate a single subkey for encryption.
-        let signed_subkey_secret = generate_encryption_subkey_and_sign(
+        let subkey_spec = SubkeySpec {
+            key_type: self.algorithm.encryption_key_type(),
+            key_version,
+            key_flags: encryption_subkey_flags(),
+            date: self.date,
+        };
+        let signed_subkey_secret = generate_signed_subkey(
             &primary_secret_key,
             &primary_pub_key,
-            self.algorithm,
-            key_version,
-            self.date,
+            &subkey_spec,
             &mut rng,
             &self.profile,
         )?;
@@ -213,59 +215,26 @@ pub(crate) fn generate_primary_key(
     Ok((primary_secret_key, primary_pub_key))
 }
 
-fn generate_encryption_subkey_and_sign<K, P, R>(
-    primary_secret_key: &K,
-    primary_pub_key: &P,
-    algorithm: KeyGenerationType,
-    key_version: KeyVersion,
-    date: UnixTime,
-    mut rng: R,
-    profile: &Profile,
-) -> Result<SignedSecretSubKey, KeyGenerationError>
-where
-    K: SigningKey,
-    P: VerifyingKey + Serialize,
-    R: CryptoRng + Rng,
-{
-    let (subkey_public_params, subkey_secret_params) =
-        algorithm.encryption_key_type().generate(&mut rng)?;
-    let pub_key = PubKeyInner::new(
-        key_version,
-        algorithm.encryption_key_type().to_alg(),
-        date.into(),
-        None,
-        subkey_public_params,
-    )?;
-    let subkey_public = packet::PublicSubkey::from_inner(pub_key)?;
-    let subkey_secret = packet::SecretSubkey::new(subkey_public.clone(), subkey_secret_params)?;
+/// Describes an encryption subkey to generate and bind to a primary key.
+pub(crate) struct SubkeySpec {
+    /// The type of key material to generate.
+    pub key_type: KeyType,
 
-    let subkey_flags = encryption_subkey_flags();
-    let preferred_hash = profile.key_hash_algorithm();
-    let subkey_binding_signature = subkey_public.sign_with(
-        primary_secret_key,
-        primary_pub_key,
-        date,
-        preferred_hash,
-        subkey_flags,
-        None,
-        &mut rng,
-        profile,
-    )?;
+    /// The key version of the generated subkey packet.
+    pub key_version: KeyVersion,
 
-    let signed_subkey_secret =
-        SignedSecretSubKey::new(subkey_secret, vec![subkey_binding_signature]);
-    Ok(signed_subkey_secret)
+    /// The key flags to certify the subkey with.
+    pub key_flags: KeyFlags,
+
+    /// The creation time of the subkey and of its binding signature.
+    pub date: UnixTime,
 }
 
-#[allow(clippy::needless_pass_by_value)]
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn generate_forwarding_encryption_subkey_and_sign<K, P, R>(
+/// Generates an encryption subkey and binds it to the primary key.
+pub(crate) fn generate_signed_subkey<K, P, R>(
     primary_secret_key: &K,
     primary_pub_key: &P,
-    forwarder_fingerprint: Fingerprint,
-    forwarder_kdf_hash: HashAlgorithm,
-    forwarder_kdf_alg_sym: SymmetricKeyAlgorithm,
-    date: UnixTime,
+    spec: &SubkeySpec,
     mut rng: R,
     profile: &Profile,
 ) -> Result<SignedSecretSubKey, KeyGenerationError>
@@ -274,60 +243,62 @@ where
     P: VerifyingKey + Serialize,
     R: CryptoRng + Rng,
 {
-    let (mut subkey_public_params, subkey_secret_params) =
-        KeyType::ECDH(ECCCurve::Curve25519Legacy).generate(&mut rng)?;
+    let params = spec.key_type.generate(&mut rng)?;
+    sign_subkey_with_params(
+        primary_secret_key,
+        primary_pub_key,
+        spec,
+        params,
+        rng,
+        profile,
+    )
+}
 
-    let PublicParams::ECDH(EcdhPublicParams::Curve25519Legacy {
-        ref mut hash,
-        ref mut alg_sym,
-        ref mut ecdh_kdf_type,
-        ..
-    }) = subkey_public_params
-    else {
-        return Err(KeyGenerationError::InvalidState("expected ECDH/Curve25519"));
-    };
-
-    *hash = forwarder_kdf_hash;
-    *alg_sym = forwarder_kdf_alg_sym;
-
-    let Fingerprint::V4(replacement_fingerprint) = forwarder_fingerprint else {
-        return Err(KeyGenerationError::InvalidState("expected v4 fingerprint"));
-    };
-
-    *ecdh_kdf_type = EcdhKdfType::Replaced {
-        replacement_fingerprint,
-    };
-
+/// Builds a subkey packet from already generated key material and binds it to
+/// the primary key with a subkey binding signature.
+///
+/// Callers that have to adjust the generated public parameters before the subkey
+/// packet is built generate the key material themselves and call this directly.
+#[allow(clippy::needless_pass_by_value)]
+pub(crate) fn sign_subkey_with_params<K, P, R>(
+    primary_secret_key: &K,
+    primary_pub_key: &P,
+    spec: &SubkeySpec,
+    params: (PublicParams, SecretParams),
+    mut rng: R,
+    profile: &Profile,
+) -> Result<SignedSecretSubKey, KeyGenerationError>
+where
+    K: SigningKey,
+    P: VerifyingKey + Serialize,
+    R: CryptoRng + Rng,
+{
+    let (subkey_public_params, subkey_secret_params) = params;
     let pub_key = PubKeyInner::new(
-        KeyVersion::V4,
-        KeyType::ECDH(ECCCurve::Curve25519Legacy).to_alg(),
-        date.into(),
+        spec.key_version,
+        spec.key_type.to_alg(),
+        spec.date.into(),
         None,
         subkey_public_params,
     )?;
-
     let subkey_public = packet::PublicSubkey::from_inner(pub_key)?;
     let subkey_secret = packet::SecretSubkey::new(subkey_public.clone(), subkey_secret_params)?;
-
-    let mut subkey_flags = KeyFlags::default();
-    subkey_flags.set_shared(true);
-    subkey_flags.set_draft_decrypt_forwarded(true);
-    let preferred_hash = profile.key_hash_algorithm();
 
     let subkey_binding_signature = subkey_public.sign_with(
         primary_secret_key,
         primary_pub_key,
-        date,
-        preferred_hash,
-        subkey_flags,
+        spec.date,
+        profile.key_hash_algorithm(),
+        spec.key_flags.clone(),
         None,
         &mut rng,
         profile,
     )?;
 
-    let signed_subkey_secret =
-        SignedSecretSubKey::new(subkey_secret, vec![subkey_binding_signature]);
-    Ok(signed_subkey_secret)
+    Ok(SignedSecretSubKey::new(
+        subkey_secret,
+        vec![subkey_binding_signature],
+    ))
 }
 
 pub(crate) fn primary_key_flags() -> KeyFlags {

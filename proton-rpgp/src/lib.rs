@@ -1,6 +1,7 @@
 mod decrypt;
 mod encrypt;
 mod errors;
+mod forward;
 pub mod key;
 mod profile;
 mod sign;
@@ -9,13 +10,14 @@ mod types;
 mod verify;
 
 pub mod armor;
-pub mod forward;
+
 /// Re-export the `pgp` crate.
 pub use pgp;
 
 pub use decrypt::*;
 pub use encrypt::*;
 pub use errors::*;
+pub use forward::*;
 pub use key::*;
 pub use profile::*;
 pub use sign::*;

@@ -781,7 +781,11 @@ fn check_key_requirements(
     }
 }
 
-pub(crate) fn check_subkey_for_forwarding<K>(
+/// Checks that `sub_key` is a valid encryption subkey of `primary_key`.
+///
+/// Unlike [`PrivateKeySelectionExt::decryption_keys`] this checks a single,
+/// caller-chosen subkey and does not fall back to the primary key.
+pub(crate) fn check_subkey_for_encryption<K>(
     sub_key: &SignedSecretSubKey,
     primary_key: &K,
     encryption_date: CheckUnixTime,
