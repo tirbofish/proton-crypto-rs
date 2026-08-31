@@ -466,21 +466,39 @@ pub fn multi_key_import_fails() {
         unarmor(MULTI_PRIVATE_KEY_ARMORED).expect("Failed to unarmor private keys");
 
     let results = [
-        PublicKey::import(MULTI_PUBLIC_KEY_ARMORED.as_bytes(), DataEncoding::Armored).map(|_| ()),
-        PublicKey::import(&multi_public_key_unarmored, DataEncoding::Unarmored).map(|_| ()),
-        LockedPrivateKey::import(MULTI_PRIVATE_KEY_ARMORED.as_bytes(), DataEncoding::Armored)
+        PublicKey::import_single_enforce(
+            MULTI_PUBLIC_KEY_ARMORED.as_bytes(),
+            DataEncoding::Armored,
+        )
+        .map(|_| ()),
+        PublicKey::import_single_enforce(&multi_public_key_unarmored, DataEncoding::Unarmored)
             .map(|_| ()),
-        LockedPrivateKey::import(&multi_private_key_unarmored, DataEncoding::Unarmored).map(|_| ()),
+        LockedPrivateKey::import_single_enforce(
+            MULTI_PRIVATE_KEY_ARMORED.as_bytes(),
+            DataEncoding::Armored,
+        )
+        .map(|_| ()),
+        LockedPrivateKey::import_single_enforce(
+            &multi_private_key_unarmored,
+            DataEncoding::Unarmored,
+        )
+        .map(|_| ()),
         // The check must also apply when the encoding is auto-detected.
-        PublicKey::import(MULTI_PUBLIC_KEY_ARMORED.as_bytes(), DataEncoding::Auto).map(|_| ()),
-        PublicKey::import(&multi_public_key_unarmored, DataEncoding::Auto).map(|_| ()),
-        PrivateKey::import(
+        PublicKey::import_single_enforce(MULTI_PUBLIC_KEY_ARMORED.as_bytes(), DataEncoding::Auto)
+            .map(|_| ()),
+        PublicKey::import_single_enforce(&multi_public_key_unarmored, DataEncoding::Auto)
+            .map(|_| ()),
+        PrivateKey::import_single_enforce(
             MULTI_PRIVATE_KEY_ARMORED.as_bytes(),
             b"",
             DataEncoding::Auto,
         )
         .map(|_| ()),
-        PrivateKey::import_unlocked(&multi_private_key_unarmored, DataEncoding::Auto).map(|_| ()),
+        PrivateKey::import_unlocked_single_enforce(
+            &multi_private_key_unarmored,
+            DataEncoding::Auto,
+        )
+        .map(|_| ()),
     ];
     for result in results {
         assert!(
