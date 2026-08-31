@@ -106,6 +106,25 @@ impl PublicKey {
     pub fn import(key_data: &[u8], encoding: DataEncoding) -> crate::Result<Self> {
         let resolved_encoding = encoding.resolve_for_read(key_data);
         let signed_public_key = match resolved_encoding {
+            ResolvedDataEncoding::Armored => SignedPublicKey::from_armor_single(key_data)
+                .map_err(KeyOperationError::Decode)
+                .map(|(signed_public, _)| signed_public)?,
+            ResolvedDataEncoding::Unarmored => {
+                SignedPublicKey::from_bytes(key_data).map_err(KeyOperationError::Decode)?
+            }
+        };
+
+        Ok(Self {
+            inner: signed_public_key,
+        })
+    }
+
+    /// Import an `OpenPGP` public key from a byte slice.
+    ///
+    /// Enforces that exaxtly one key is present in the input.
+    pub fn import_single_enforce(key_data: &[u8], encoding: DataEncoding) -> crate::Result<Self> {
+        let resolved_encoding = encoding.resolve_for_read(key_data);
+        let signed_public_key = match resolved_encoding {
             ResolvedDataEncoding::Armored => SignedPublicKey::from_armor_single_enforce(key_data)?,
             ResolvedDataEncoding::Unarmored => {
                 SignedPublicKey::from_bytes_single_enforce(key_data)?
@@ -275,6 +294,23 @@ impl LockedPrivateKey {
     pub fn import(key_data: &[u8], encoding: DataEncoding) -> crate::Result<Self> {
         let resolved_encoding = encoding.resolve_for_read(key_data);
         let secret = match resolved_encoding {
+            ResolvedDataEncoding::Armored => SignedSecretKey::from_armor_single(key_data)
+                .map_err(KeyOperationError::Decode)
+                .map(|(secret, _)| secret)?,
+            ResolvedDataEncoding::Unarmored => {
+                SignedSecretKey::from_bytes(key_data).map_err(KeyOperationError::Decode)?
+            }
+        };
+        Ok(Self::new(secret))
+    }
+
+    /// Import a locked `OpenPGP` secret key from a byte slice.
+    ///
+    /// Does not check if the key is locked or not.
+    /// Enforces that exatly one key is encoded in the input.
+    pub fn import_single_enforce(key_data: &[u8], encoding: DataEncoding) -> crate::Result<Self> {
+        let resolved_encoding = encoding.resolve_for_read(key_data);
+        let secret = match resolved_encoding {
             ResolvedDataEncoding::Armored => SignedSecretKey::from_armor_single_enforce(key_data)?,
             ResolvedDataEncoding::Unarmored => {
                 SignedSecretKey::from_bytes_single_enforce(key_data)?
@@ -359,6 +395,18 @@ impl PrivateKey {
         locked.unlock(password, KeyLock::Expected)
     }
 
+    /// Import and unlock `OpenPGP` secret key from a byte slice.
+    ///
+    /// Enforces that exactly one key is present in the input.
+    pub fn import_single_enforce(
+        key_data: &[u8],
+        password: &[u8],
+        encoding: DataEncoding,
+    ) -> crate::Result<PrivateKey> {
+        let locked = LockedPrivateKey::import_single_enforce(key_data, encoding)?;
+        locked.unlock(password, KeyLock::Expected)
+    }
+
     /// Imports multiple unlocked `OpenPGP` secret keys from a single binary blob.
     pub fn import_unlocked_many(key_data: &[u8]) -> crate::Result<Vec<PrivateKey>> {
         let locked_keys = LockedPrivateKey::import_many(key_data)?;
@@ -376,6 +424,21 @@ impl PrivateKey {
     /// Returns an [`KeyOperationError::Locked`] if the imported key is locked.
     pub fn import_unlocked(key_data: &[u8], encoding: DataEncoding) -> crate::Result<PrivateKey> {
         let locked = LockedPrivateKey::import(key_data, encoding)?;
+        if locked.is_locked() {
+            return Err(KeyOperationError::Locked.into());
+        }
+        locked.unlock("".as_bytes(), KeyLock::NotRequired)
+    }
+
+    /// Import an unlocked `OpenPGP` secret key from a byte slice.
+    ///
+    /// Returns an [`KeyOperationError::Locked`] if the imported key is locked.
+    /// Enforces that exactly one key is present in the input.
+    pub fn import_unlocked_single_enforce(
+        key_data: &[u8],
+        encoding: DataEncoding,
+    ) -> crate::Result<PrivateKey> {
+        let locked = LockedPrivateKey::import_single_enforce(key_data, encoding)?;
         if locked.is_locked() {
             return Err(KeyOperationError::Locked.into());
         }
