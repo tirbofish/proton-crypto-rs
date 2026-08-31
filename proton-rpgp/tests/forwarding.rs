@@ -979,3 +979,121 @@ pub fn forwarding_generated_key_cannot_decrypt_the_original_message() {
         .expect("The forwarder must still decrypt its own message");
     assert_eq!(decrypted.data, b"hello");
 }
+
+#[test]
+#[allow(clippy::missing_panics_doc)]
+pub fn forwarding_message_proxy_forward() {
+    let forwarder = import_unlocked(TEST_KEY_V4);
+    let encrypted = encrypt_to(&forwarder, b"hello");
+    let data_packet = encrypted.as_data_packet_unchecked().to_vec();
+
+    let (forwardee, instances) = forwarder
+        .forwarding_key_generator()
+        .with_user_id("forwardee", "forwardee@test.test")
+        .at_date(test_date())
+        .generate()
+        .expect("Generation should succeed");
+
+    let forwarded = encrypted
+        .proxy_forward(&instances)
+        .expect("Failed to forward message");
+
+    assert_eq!(
+        forwarded.as_data_packet_unchecked(),
+        data_packet,
+        "Forwarding must not change the data packet"
+    );
+
+    let decrypted = Decryptor::default()
+        .allow_forwarding_decryption(true)
+        .with_decryption_key(&forwardee)
+        .at_date(test_date().into())
+        .decrypt(
+            forwarded.to_bytes().expect("Failed to encode message"),
+            DataEncoding::Unarmored,
+        )
+        .expect("Failed to decrypt forwarded message");
+
+    assert_eq!(decrypted.data, b"hello");
+}
+
+#[test]
+#[allow(clippy::missing_panics_doc)]
+pub fn forwarding_message_proxy_forward_drops_unmatched_key_packets() {
+    let forwarder = import_unlocked(TEST_KEY_V4);
+    let other = KeyGenerator::default()
+        .with_user_id("other", "other@test.test")
+        .with_key_type(KeyGenerationType::ECC)
+        .at_date(test_date())
+        .generate()
+        .expect("Failed to generate key");
+
+    let encrypted = Encryptor::default()
+        .with_encryption_key(forwarder.as_public_key())
+        .with_encryption_key(other.as_public_key())
+        .at_date(test_date().into())
+        .encrypt(b"hello")
+        .expect("Failed to encrypt");
+    assert_eq!(encrypted.encryption_key_ids().len(), 2);
+
+    let (forwardee, instances) = forwarder
+        .forwarding_key_generator()
+        .with_user_id("forwardee", "forwardee@test.test")
+        .at_date(test_date())
+        .generate()
+        .expect("Generation should succeed");
+
+    let forwarded = encrypted
+        .proxy_forward(&instances)
+        .expect("Failed to forward message");
+
+    // Only the transformed PKESK for the forwardee remains.
+    assert_eq!(forwarded.encryption_key_ids().len(), 1);
+
+    let decrypted = Decryptor::default()
+        .allow_forwarding_decryption(true)
+        .with_decryption_key(&forwardee)
+        .at_date(test_date().into())
+        .decrypt(
+            forwarded.to_bytes().expect("Failed to encode message"),
+            DataEncoding::Unarmored,
+        )
+        .expect("Failed to decrypt forwarded message");
+
+    assert_eq!(decrypted.data, b"hello");
+}
+
+#[test]
+#[allow(clippy::missing_panics_doc)]
+pub fn forwarding_message_proxy_forward_without_matching_instance_fails() {
+    let forwarder = import_unlocked(TEST_KEY_V4);
+    let other = KeyGenerator::default()
+        .with_user_id("other", "other@test.test")
+        .with_key_type(KeyGenerationType::ECC)
+        .at_date(test_date())
+        .generate()
+        .expect("Failed to generate key");
+    let encrypted = encrypt_to(&other, b"hello");
+
+    let (_, instances) = forwarder
+        .forwarding_key_generator()
+        .with_user_id("forwardee", "forwardee@test.test")
+        .at_date(test_date())
+        .generate()
+        .expect("Generation should succeed");
+
+    assert!(matches!(
+        encrypted.clone().proxy_forward(&instances),
+        Err(Error::ForwardingTransform(
+            ForwardingTransformError::NoPkeskFound
+        ))
+    ));
+
+    let empty: [ForwardingInstance; 0] = [];
+    assert!(matches!(
+        encrypted.proxy_forward(&empty),
+        Err(Error::ForwardingTransform(
+            ForwardingTransformError::NoPkeskFound
+        ))
+    ));
+}

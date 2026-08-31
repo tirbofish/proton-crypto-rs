@@ -1,5 +1,7 @@
 use std::io::BufRead;
 
+use crate::{EncryptedMessage, Error::ForwardingTransform};
+
 use pgp::{
     crypto::public_key::PublicKeyAlgorithm,
     packet::{Packet, PacketParser, PacketTrait, PublicKeyEncryptedSessionKey},
@@ -7,6 +9,36 @@ use pgp::{
 };
 
 use crate::{FingerprintExt, ForwardingInstance, ForwardingTransformError};
+
+impl EncryptedMessage {
+    /// Transforms the message's key packets for the forwardees in `instances`.
+    ///
+    /// Every forwardable PKESK is replaced by its transformed counterpart. Key packets
+    /// that are not eligible for forwarding, or for which no instance matches, are
+    /// dropped. Fails with [`ForwardingTransformError::NoPkeskFound`] if no key packet
+    /// could be forwarded.
+    pub fn proxy_forward(self, instances: &[ForwardingInstance]) -> crate::Result<Self> {
+        let mut forwarded_message = Vec::with_capacity(self.encrypted_data.len());
+        for fpkesk_res in ForwardingPkesk::from_bytes_iter(self.as_key_packets()?) {
+            let Ok(fpkesk) = fpkesk_res else {
+                continue;
+            };
+            match fpkesk.proxy_forward(instances) {
+                Ok(forwarded) => forwarded_message.extend_from_slice(&forwarded.to_vec()?),
+                Err(ForwardingTransform(ForwardingTransformError::NoMatchingInstance(_))) => {}
+                Err(err) => return Err(err),
+            }
+        }
+        if forwarded_message.is_empty() {
+            return Err(ForwardingTransformError::NoPkeskFound.into());
+        }
+        forwarded_message.extend_from_slice(self.as_data_packet()?);
+        Ok(Self {
+            encrypted_data: forwarded_message,
+            info: self.info,
+        })
+    }
+}
 
 /// A PKESK that has been transformed for a forwardee.
 #[derive(Debug, Clone, PartialEq, Eq)]
