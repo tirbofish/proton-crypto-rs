@@ -97,12 +97,12 @@ impl KeyGenerator {
     /// ```
     pub fn generate(self) -> crate::Result<PrivateKey> {
         let rng = self.profile.rng();
-        self.generate_with_rng(rng)
+        self.hazardous_generate_with_rng(rng)
     }
 
     /// Generate a `OpenPGP` private key for the given generation configuration and CSPRNG.
     ///
-    /// # Warning
+    /// # Security Hazard
     ///
     /// The randomness source is security critical and must be provided by a cryptographically secure random number generator.
     /// If unsure, use [`Self::generate`] instead.
@@ -118,10 +118,10 @@ impl KeyGenerator {
     /// let key = KeyGenerator::default()
     ///     .with_user_id("test", "test@test.test")
     ///     .with_key_type(KeyGenerationType::ECC)
-    ///     .generate_with_rng(&mut rng)
+    ///     .hazardous_generate_with_rng(&mut rng)
     ///     .unwrap();
     /// ```
-    pub fn generate_with_rng<R>(self, mut rng: R) -> crate::Result<PrivateKey>
+    pub fn hazardous_generate_with_rng<R>(self, mut rng: R) -> crate::Result<PrivateKey>
     where
         R: Rng + CryptoRng,
     {
