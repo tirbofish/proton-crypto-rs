@@ -70,6 +70,15 @@ impl ForwardingInstance {
     }
 }
 
+impl Clone for ForwardingInstance {
+    fn clone(&self) -> Self {
+        Self {
+            key_details: self.key_details.clone(),
+            proxy_parameter: ForwardingProxyParameter::from(*self.proxy_parameter.as_ref()),
+        }
+    }
+}
+
 /// Redacts the proxy parameter, which is secret key material.
 impl std::fmt::Debug for ForwardingInstance {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -81,7 +90,7 @@ impl std::fmt::Debug for ForwardingInstance {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct ForwardingKeyDetails {
     forwarder_fingerprint: Fingerprint,
     forwardee_fingerprint: Fingerprint,
