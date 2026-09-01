@@ -1,13 +1,14 @@
 use pgp::{
     composed::SignedSecretKey,
-    packet::{self, KeyFlags, PubKeyInner},
-    types::KeyDetails,
+    packet::{self, KeyFlags, PubKeyInner, SignatureType, UserId},
+    types::{KeyDetails, SignedUser},
 };
 
 use crate::{
     convert_user_ids, primary_key_flags, CertificationSelectionExt, CheckUnixTime,
-    KeyGenerationProfileBuilder, KeyModificationError, KeyUserId, PacketPublicSubkeyExt,
-    PrivateKey, PrivateKeySelectionExt, Profile, PublicKeySelectionExt, UnixTime, DEFAULT_PROFILE,
+    KeyCertificationError, KeyGenerationProfileBuilder, KeyModificationError, KeyUserId,
+    PacketPublicSubkeyExt, PacketUserIdExt, PrivateKey, PrivateKeySelectionExt, Profile,
+    PublicKeySelectionExt, SignatureExt, SignatureUsage, UnixTime, DEFAULT_PROFILE,
 };
 
 pub struct KeyModifier {
@@ -274,15 +275,95 @@ impl KeyModifier {
     }
 }
 
+/// Certifies the single user-id of a key with an external `certifier` key.
+pub(crate) fn certify_user_id_with_external(
+    certified_primary_key: &packet::PublicKey,
+    user_ids: &[SignedUser],
+    certifier: &PrivateKey,
+    email: &str,
+    date: UnixTime,
+    profile: &Profile,
+) -> Result<Vec<SignedUser>, KeyCertificationError> {
+    // Enforce that the key has a single user-id that matches the email.
+    if user_ids.len() > 1 {
+        return Err(KeyCertificationError::ToManyUserIds);
+    }
+    let Some(user) = user_ids.first() else {
+        return Err(KeyCertificationError::NoUserId);
+    };
+    check_user_id_email(&user.id, email)?;
+
+    // Time checks are disabled to also allow certifying expired keys.
+    user.check_validity(certified_primary_key, CheckUnixTime::disable(), profile)
+        .map_err(KeyCertificationError::UserIdSelfCertification)?;
+
+    let certifier_primary_key = certifier.secret.primary_key.public_key();
+    let certification_key = certifier.secret.signing_key(
+        date.into(),
+        Some(certifier_primary_key.legacy_key_id()),
+        SignatureUsage::Sign,
+        profile,
+    )?;
+    let (certifier_user, _) = certifier
+        .secret
+        .select_user_id_with_certification(CheckUnixTime::disable(), profile)
+        .map_err(KeyCertificationError::CertifierUserId)?;
+
+    let certification = user.id.sign_third_party_with(
+        &certification_key.private_key,
+        certified_primary_key,
+        Some(&certifier_user.id),
+        date,
+        profile.key_hash_algorithm(),
+        profile.rng(),
+        profile,
+    )?;
+
+    // Replace existing generic certifications from the same certifier.
+    let mut certified_user = user.clone();
+    certified_user.signatures.retain(|signature| {
+        signature.typ() != Some(SignatureType::CertGeneric)
+            || !signature.is_issued_by(certifier_primary_key)
+    });
+    certified_user.signatures.push(certification);
+
+    Ok(vec![certified_user])
+}
+
+/// Checks that the user-id contains the given email address.
+fn check_user_id_email(user_id: &UserId, email: &str) -> Result<(), KeyCertificationError> {
+    if email.is_empty() {
+        return Ok(());
+    }
+    let user_id_string = user_id
+        .as_str()
+        .ok_or(KeyCertificationError::InvalidUserId)?;
+    if extract_email(user_id_string) != Some(email) {
+        return Err(KeyCertificationError::EmailMismatch(email.to_owned()));
+    }
+    Ok(())
+}
+
+/// Extracts the email address of a user-id of the form `name (comment) <email>`.
+fn extract_email(user_id: &str) -> Option<&str> {
+    let (_, remainder) = user_id.split_once('<')?;
+    let (email, _) = remainder.split_once('>')?;
+    Some(email)
+}
+
 #[cfg(test)]
 mod tests {
+    use pgp::{packet::SignatureType, types::Tag};
+
     use crate::{
-        AccessKeyInfo, DataEncoding, PrivateKey, UnixTime, DEFAULT_PROFILE,
-        PREFERRED_KEY_GEN_COMPRESSION_ALGORITHMS, PREFERRED_KEY_GEN_HASH_ALGORITHMS,
+        AccessKeyInfo, DataEncoding, KeyCertificationError, KeyGenerationType, KeyGenerator,
+        PrivateKey, PublicKey, UnixTime, DEFAULT_PROFILE, PREFERRED_KEY_GEN_COMPRESSION_ALGORITHMS,
+        PREFERRED_KEY_GEN_HASH_ALGORITHMS,
     };
 
     const TEST_PRIVATE_KEY: &str = include_str!("../../test-data/keys/locked_private_key_v6.asc");
     const TEST_PRIVATE_KEY_PASSWORD: &str = "password";
+    const TEST_KEY_EMAIL: &str = "rust-test@test.test";
 
     #[test]
     fn key_modification_user_id_v4() {
@@ -397,5 +478,163 @@ mod tests {
             old_user_id.as_str().unwrap(),
             "rust-test <rust-test@test.test>"
         );
+    }
+
+    fn import_test_key() -> PrivateKey {
+        PrivateKey::import_unlocked(
+            include_str!("../../test-data/keys/private_key_v4.asc").as_bytes(),
+            DataEncoding::Armored,
+        )
+        .expect("Failed to import key")
+    }
+
+    fn generate_certifier(date: UnixTime) -> PrivateKey {
+        KeyGenerator::default()
+            .with_user_id("certifier", "certifier@test.com")
+            .with_key_type(KeyGenerationType::ECC)
+            .at_date(date)
+            .generate()
+            .expect("Failed to generate certifier key")
+    }
+
+    #[test]
+    fn certification_with_external_key() {
+        let key = import_test_key();
+        let date = UnixTime::new(1_756_196_260);
+        let certifier = generate_certifier(date);
+
+        let certified_key = key
+            .certify_with_external(&certifier, TEST_KEY_EMAIL, date, &DEFAULT_PROFILE)
+            .expect("Failed to certify key");
+
+        assert!(certified_key
+            .check_can_encrypt(&DEFAULT_PROFILE, date.into())
+            .is_ok());
+
+        let user = certified_key
+            .as_signed_public_key()
+            .details
+            .users
+            .first()
+            .expect("No user-id in certified key");
+
+        // The self-certification is kept and the external certification is added.
+        assert_eq!(user.signatures.len(), 2);
+        let certification = user.signatures.last().expect("No certification");
+        assert_eq!(certification.typ(), Some(SignatureType::CertGeneric));
+        assert_eq!(UnixTime::from(certification.created().unwrap()), date);
+        assert_eq!(
+            certification.issuer_fingerprint().first().copied(),
+            Some(&certifier.fingerprint())
+        );
+        assert_eq!(
+            certification.signers_userid().map(AsRef::as_ref),
+            Some("certifier <certifier@test.com>".as_bytes())
+        );
+
+        certification
+            .verify_third_party_certification(
+                &certified_key.as_signed_public_key().primary_key,
+                &certifier.as_signed_public_key().primary_key,
+                Tag::UserId,
+                &user.id,
+            )
+            .expect("Certification must verify with the certifier key");
+    }
+
+    #[test]
+    fn certification_with_external_key_on_public_key() {
+        let key = import_test_key();
+        let date = UnixTime::new(1_756_196_260);
+        let certifier = generate_certifier(date);
+        let public_key = PublicKey::from(&key);
+
+        let certified_key = public_key
+            .certify_with_external(&certifier, TEST_KEY_EMAIL, date, &DEFAULT_PROFILE)
+            .expect("Failed to certify public key");
+
+        // The certified public key is still a valid key that can be re-imported.
+        let exported = certified_key
+            .export(DataEncoding::Armored)
+            .expect("Failed to export certified public key");
+        let reimported = PublicKey::import(&exported, DataEncoding::Armored)
+            .expect("Failed to import certified public key");
+
+        let user = reimported
+            .as_signed_public_key()
+            .details
+            .users
+            .first()
+            .expect("No user-id in certified key");
+
+        assert_eq!(user.signatures.len(), 2);
+        let certification = user.signatures.last().expect("No certification");
+        assert_eq!(certification.typ(), Some(SignatureType::CertGeneric));
+        certification
+            .verify_third_party_certification(
+                &reimported.as_signed_public_key().primary_key,
+                &certifier.as_signed_public_key().primary_key,
+                Tag::UserId,
+                &user.id,
+            )
+            .expect("Certification must verify with the certifier key");
+    }
+
+    #[test]
+    fn certification_with_external_key_replaces_existing() {
+        let key = import_test_key();
+        let date = UnixTime::new(1_756_196_260);
+        let later_date = UnixTime::new(1_756_296_260);
+        let certifier = generate_certifier(date);
+
+        let certified_key = key
+            .certify_with_external(&certifier, TEST_KEY_EMAIL, date, &DEFAULT_PROFILE)
+            .expect("Failed to certify key");
+        let recertified_key = certified_key
+            .certify_with_external(&certifier, TEST_KEY_EMAIL, later_date, &DEFAULT_PROFILE)
+            .expect("Failed to re-certify key");
+
+        let user = recertified_key
+            .as_signed_public_key()
+            .details
+            .users
+            .first()
+            .expect("No user-id in certified key");
+
+        assert_eq!(user.signatures.len(), 2);
+        let certification = user.signatures.last().expect("No certification");
+        assert_eq!(certification.typ(), Some(SignatureType::CertGeneric));
+        assert_eq!(UnixTime::from(certification.created().unwrap()), later_date);
+    }
+
+    #[test]
+    fn certification_with_external_key_wrong_email() {
+        let key = import_test_key();
+        let date = UnixTime::new(1_756_196_260);
+        let certifier = generate_certifier(date);
+
+        let result =
+            key.certify_with_external(&certifier, "other@test.test", date, &DEFAULT_PROFILE);
+
+        assert!(matches!(
+            result,
+            Err(KeyCertificationError::EmailMismatch(_))
+        ));
+    }
+
+    #[test]
+    fn certification_with_external_key_too_many_user_ids() {
+        let date = UnixTime::new(1_756_196_260);
+        let key = import_test_key()
+            .modify()
+            .add_user_id("test2", "test2@test.com")
+            .with_date(date)
+            .apply()
+            .expect("Failed to modify key");
+        let certifier = generate_certifier(date);
+
+        let result = key.certify_with_external(&certifier, TEST_KEY_EMAIL, date, &DEFAULT_PROFILE);
+
+        assert!(matches!(result, Err(KeyCertificationError::ToManyUserIds)));
     }
 }

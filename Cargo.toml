@@ -43,6 +43,7 @@ indexing_slicing = "warn"
 string_slice = "warn"
 
 # --- Overrides ---
+similar-names = { level = "allow", priority = 1 }
 return-self-not-must-use = { level = "allow", priority = 1 }
 must-use-candidate = { level = "allow", priority = 1 }
 missing-errors-doc = { level = "allow", priority = 1 }

@@ -33,6 +33,9 @@ pub enum Error {
     KeyModification(#[from] KeyModificationError),
 
     #[error("{LIB_ERROR_PREFIX}: {0}")]
+    KeyCertification(#[from] KeyCertificationError),
+
+    #[error("{LIB_ERROR_PREFIX}: {0}")]
     Signing(#[from] SigningError),
 
     #[error("{LIB_ERROR_PREFIX}: {0}")]
@@ -308,6 +311,33 @@ pub enum KeyModificationError {
 
     #[error("Failed to modify primary key params: {0}")]
     PrimaryKeyModification(pgp::errors::Error),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum KeyCertificationError {
+    #[error("The key has too many user ids to certify with an external certifier")]
+    ToManyUserIds,
+
+    #[error("The key has no user id to certify")]
+    NoUserId,
+
+    #[error("The user id of the key is not valid utf-8")]
+    InvalidUserId,
+
+    #[error("The user id of the key does not contain the email address {0}")]
+    EmailMismatch(String),
+
+    #[error("Failed to load a valid self-certification for the user id to certify: {0}")]
+    UserIdSelfCertification(KeyCertificationSelectionError),
+
+    #[error("Failed to load a valid user id in the certifier key: {0}")]
+    CertifierUserId(KeyCertificationSelectionError),
+
+    #[error("Failed to select a certification key in the certifier key: {0}")]
+    CertificationKeySelection(#[from] KeyValidationError),
+
+    #[error("Failed to create the certification signature: {0}")]
+    Signing(#[from] SigningError),
 }
 
 #[derive(Debug, thiserror::Error)]
