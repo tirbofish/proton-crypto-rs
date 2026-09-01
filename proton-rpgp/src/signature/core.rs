@@ -4,7 +4,7 @@ use pgp::{
     packet::{
         KeyFlags, Notation, SignatureConfig, SignatureType, Subpacket, SubpacketData, UserId,
     },
-    types::{KeyVersion, SigningKey, VerifyingKey},
+    types::{Duration, KeyVersion, SigningKey, VerifyingKey},
 };
 use rand::{CryptoRng, Rng};
 
@@ -190,11 +190,15 @@ where
 }
 
 /// Configures a third-party certification signature over a user-id of another key.
+///
+/// If a `lifetime` in seconds is given, the certification expires that many
+/// seconds after `at_date`.
 pub(crate) fn configure_third_party_certification_signature<K, R>(
     certifier_secret_key: &K,
     at_date: UnixTime,
     preferred_hash: HashAlgorithm,
     certifier_user_id: Option<&UserId>,
+    lifetime: Option<u32>,
     profile: &Profile,
     mut rng: R,
 ) -> Result<SignatureConfig, SigningError>
@@ -214,9 +218,19 @@ where
         &mut rng,
     )?;
 
-    let mut hashed_subpackets = Vec::with_capacity(5);
+    let mut hashed_subpackets = Vec::with_capacity(6);
 
     push_signature_creation_time_subpacket(&mut hashed_subpackets, at_date)?;
+
+    // Let the certification expire after the given lifetime.
+    if let Some(lifetime) = lifetime {
+        hashed_subpackets.push(
+            Subpacket::critical(SubpacketData::SignatureExpirationTime(Duration::from_secs(
+                lifetime,
+            )))
+            .map_err(SigningError::Sign)?,
+        );
+    }
 
     push_v4_issuer_and_salt(
         &mut hashed_subpackets,

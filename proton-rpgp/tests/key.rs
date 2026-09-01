@@ -537,6 +537,7 @@ pub fn certify_public_and_private_key_with_external_key() {
             &certifier,
             TEST_KEY_TO_CERTIFY_EMAIL,
             date,
+            None,
             &Profile::default(),
         )
         .expect("Failed to certify private key");
@@ -547,6 +548,7 @@ pub fn certify_public_and_private_key_with_external_key() {
             &certifier,
             TEST_KEY_TO_CERTIFY_EMAIL,
             date,
+            None,
             &Profile::default(),
         )
         .expect("Failed to certify public key");

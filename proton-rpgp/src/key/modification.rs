@@ -276,12 +276,17 @@ impl KeyModifier {
 }
 
 /// Certifies the single user-id of a key with an external `certifier` key.
+///
+/// If a `lifetime` in seconds is given, the certification expires that many
+/// seconds after `date`.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn certify_user_id_with_external(
     certified_primary_key: &packet::PublicKey,
     user_ids: &[SignedUser],
     certifier: &PrivateKey,
     email: &str,
     date: UnixTime,
+    lifetime: Option<u32>,
     profile: &Profile,
 ) -> Result<Vec<SignedUser>, KeyCertificationError> {
     // Enforce that the key has a single user-id that matches the email.
@@ -315,6 +320,7 @@ pub(crate) fn certify_user_id_with_external(
         Some(&certifier_user.id),
         date,
         profile.key_hash_algorithm(),
+        lifetime,
         profile.rng(),
         profile,
     )?;
@@ -353,12 +359,15 @@ fn extract_email(user_id: &str) -> Option<&str> {
 
 #[cfg(test)]
 mod tests {
-    use pgp::{packet::SignatureType, types::Tag};
+    use pgp::{
+        packet::SignatureType,
+        types::{Duration, Tag},
+    };
 
     use crate::{
         AccessKeyInfo, DataEncoding, KeyCertificationError, KeyGenerationType, KeyGenerator,
-        PrivateKey, PublicKey, UnixTime, DEFAULT_PROFILE, PREFERRED_KEY_GEN_COMPRESSION_ALGORITHMS,
-        PREFERRED_KEY_GEN_HASH_ALGORITHMS,
+        PrivateKey, PublicKey, SignatureExt, UnixTime, DEFAULT_PROFILE,
+        PREFERRED_KEY_GEN_COMPRESSION_ALGORITHMS, PREFERRED_KEY_GEN_HASH_ALGORITHMS,
     };
 
     const TEST_PRIVATE_KEY: &str = include_str!("../../test-data/keys/locked_private_key_v6.asc");
@@ -504,7 +513,7 @@ mod tests {
         let certifier = generate_certifier(date);
 
         let certified_key = key
-            .certify_with_external(&certifier, TEST_KEY_EMAIL, date, &DEFAULT_PROFILE)
+            .certify_with_external(&certifier, TEST_KEY_EMAIL, date, None, &DEFAULT_PROFILE)
             .expect("Failed to certify key");
 
         assert!(certified_key
@@ -550,7 +559,7 @@ mod tests {
         let public_key = PublicKey::from(&key);
 
         let certified_key = public_key
-            .certify_with_external(&certifier, TEST_KEY_EMAIL, date, &DEFAULT_PROFILE)
+            .certify_with_external(&certifier, TEST_KEY_EMAIL, date, None, &DEFAULT_PROFILE)
             .expect("Failed to certify public key");
 
         // The certified public key is still a valid key that can be re-imported.
@@ -581,6 +590,47 @@ mod tests {
     }
 
     #[test]
+    fn certification_with_external_key_with_lifetime() {
+        const LIFETIME: u32 = 60 * 60 * 24;
+
+        let key = import_test_key();
+        let date = UnixTime::new(1_756_196_260);
+        let certifier = generate_certifier(date);
+
+        let certified_key = key
+            .certify_with_external(
+                &certifier,
+                TEST_KEY_EMAIL,
+                date,
+                Some(LIFETIME),
+                &DEFAULT_PROFILE,
+            )
+            .expect("Failed to certify key");
+
+        let user = certified_key
+            .as_signed_public_key()
+            .details
+            .users
+            .first()
+            .expect("No user-id in certified key");
+        let certification = user.signatures.last().expect("No certification");
+
+        assert_eq!(
+            certification
+                .signature_expiration_time()
+                .map(Duration::as_secs),
+            Some(LIFETIME)
+        );
+
+        // The certification is valid until the lifetime elapsed.
+        let expiration = UnixTime::new(date.unix_seconds() + u64::from(LIFETIME));
+        assert!(certification.check_not_expired(expiration.into()).is_ok());
+        assert!(certification
+            .check_not_expired(UnixTime::new(expiration.unix_seconds() + 1).into())
+            .is_err());
+    }
+
+    #[test]
     fn certification_with_external_key_replaces_existing() {
         let key = import_test_key();
         let date = UnixTime::new(1_756_196_260);
@@ -588,10 +638,16 @@ mod tests {
         let certifier = generate_certifier(date);
 
         let certified_key = key
-            .certify_with_external(&certifier, TEST_KEY_EMAIL, date, &DEFAULT_PROFILE)
+            .certify_with_external(&certifier, TEST_KEY_EMAIL, date, None, &DEFAULT_PROFILE)
             .expect("Failed to certify key");
         let recertified_key = certified_key
-            .certify_with_external(&certifier, TEST_KEY_EMAIL, later_date, &DEFAULT_PROFILE)
+            .certify_with_external(
+                &certifier,
+                TEST_KEY_EMAIL,
+                later_date,
+                None,
+                &DEFAULT_PROFILE,
+            )
             .expect("Failed to re-certify key");
 
         let user = recertified_key
@@ -614,7 +670,7 @@ mod tests {
         let certifier = generate_certifier(date);
 
         let result =
-            key.certify_with_external(&certifier, "other@test.test", date, &DEFAULT_PROFILE);
+            key.certify_with_external(&certifier, "other@test.test", date, None, &DEFAULT_PROFILE);
 
         assert!(matches!(
             result,
@@ -633,7 +689,8 @@ mod tests {
             .expect("Failed to modify key");
         let certifier = generate_certifier(date);
 
-        let result = key.certify_with_external(&certifier, TEST_KEY_EMAIL, date, &DEFAULT_PROFILE);
+        let result =
+            key.certify_with_external(&certifier, TEST_KEY_EMAIL, date, None, &DEFAULT_PROFILE);
 
         assert!(matches!(result, Err(KeyCertificationError::ToManyUserIds)));
     }

@@ -162,11 +162,15 @@ impl PublicKey {
     /// Certifies the user-id of this key with an external `certifier` key.
     ///
     /// For example: Proton CA
+    ///
+    /// If a `lifetime` in seconds is given, the certification expires that many
+    /// seconds after `date`, otherwise it does not expire.
     pub fn certify_with_external(
         &self,
         certifier: &PrivateKey,
         email: &str,
         date: UnixTime,
+        lifetime: Option<u32>,
         profile: &Profile,
     ) -> Result<Self, KeyCertificationError> {
         let certified_user_ids = certify_user_id_with_external(
@@ -175,6 +179,7 @@ impl PublicKey {
             certifier,
             email,
             date,
+            lifetime,
             profile,
         )?;
         let mut inner = self.inner.clone();
@@ -561,11 +566,15 @@ impl PrivateKey {
     /// Certifies the user-id of this key with an external `certifier` key.
     ///
     /// For example: Proton CA
+    ///
+    /// If a `lifetime` in seconds is given, the certification expires that many
+    /// seconds after `date`, otherwise it does not expire.
     pub fn certify_with_external(
         &self,
         certifier: &PrivateKey,
         email: &str,
         date: UnixTime,
+        lifetime: Option<u32>,
         profile: &Profile,
     ) -> Result<Self, KeyCertificationError> {
         let certified_user_ids = certify_user_id_with_external(
@@ -574,6 +583,7 @@ impl PrivateKey {
             certifier,
             email,
             date,
+            lifetime,
             profile,
         )?;
         let mut secret = self.secret.clone();
