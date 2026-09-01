@@ -1,7 +1,9 @@
 use pgp::{
     bytes::Bytes,
     crypto::hash::HashAlgorithm,
-    packet::{KeyFlags, Notation, SignatureConfig, SignatureType, Subpacket, SubpacketData},
+    packet::{
+        KeyFlags, Notation, SignatureConfig, SignatureType, Subpacket, SubpacketData, UserId,
+    },
     types::{KeyVersion, SigningKey, VerifyingKey},
 };
 use rand::{CryptoRng, Rng};
@@ -185,6 +187,58 @@ where
     }
 
     Ok(hashed_subpackets)
+}
+
+/// Configures a third-party certification signature over a user-id of another key.
+pub(crate) fn configure_third_party_certification_signature<K, R>(
+    certifier_secret_key: &K,
+    at_date: UnixTime,
+    preferred_hash: HashAlgorithm,
+    certifier_user_id: Option<&UserId>,
+    profile: &Profile,
+    mut rng: R,
+) -> Result<SignatureConfig, SigningError>
+where
+    K: SigningKey,
+    R: Rng + CryptoRng,
+{
+    let hash_algorithm = select_hash_to_sign_key_signatures(
+        preferred_hash,
+        certifier_secret_key.public_params(),
+        profile,
+    );
+    let mut config = signature_config_from_key(
+        certifier_secret_key,
+        SignatureType::CertGeneric,
+        hash_algorithm,
+        &mut rng,
+    )?;
+
+    let mut hashed_subpackets = Vec::with_capacity(5);
+
+    push_signature_creation_time_subpacket(&mut hashed_subpackets, at_date)?;
+
+    push_v4_issuer_and_salt(
+        &mut hashed_subpackets,
+        certifier_secret_key,
+        hash_algorithm,
+        &mut rng,
+    )?;
+
+    // Indicate with which identity of the certifier key the certification was made.
+    if let Some(certifier_user_id) = certifier_user_id {
+        hashed_subpackets.push(
+            Subpacket::regular(SubpacketData::SignersUserID(Bytes::from(
+                certifier_user_id.id().to_vec(),
+            )))
+            .map_err(SigningError::Sign)?,
+        );
+    }
+
+    push_issuer_fingerprint_subpacket(&mut hashed_subpackets, certifier_secret_key)?;
+
+    config.hashed_subpackets = hashed_subpackets;
+    Ok(config)
 }
 
 #[allow(clippy::too_many_arguments)]

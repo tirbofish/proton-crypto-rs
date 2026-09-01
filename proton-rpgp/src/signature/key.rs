@@ -6,13 +6,16 @@ use pgp::{
         UserId,
     },
     ser::Serialize,
-    types::{CompressionAlgorithm, KeyVersion, Password, SigningKey, VerifyingKey},
+    types::{CompressionAlgorithm, KeyDetails, KeyVersion, Password, SigningKey, VerifyingKey},
 };
 use rand::{CryptoRng, Rng};
 use smallvec::SmallVec;
 
 use crate::{
-    core::{configure_key_details_signature, configure_subkey_signature},
+    core::{
+        configure_key_details_signature, configure_subkey_signature,
+        configure_third_party_certification_signature,
+    },
     Profile, SigningError, UnixTime,
 };
 
@@ -129,6 +132,62 @@ impl KeyDetailsConfig {
             users,
             user_attributes: Vec::new(),
         })
+    }
+}
+
+pub(crate) trait PacketUserIdExt {
+    /// Creates a third-party certification over this user-id with an external certifier key.
+    #[allow(clippy::too_many_arguments)]
+    fn sign_third_party_with<R, K, C>(
+        &self,
+        certifier_secret_key: &K,
+        certified_primary_key: &C,
+        certifier_user_id: Option<&UserId>,
+        at_date: UnixTime,
+        preferred_hash: HashAlgorithm,
+        rng: R,
+        profile: &Profile,
+    ) -> Result<Signature, SigningError>
+    where
+        K: SigningKey,
+        C: KeyDetails + Serialize,
+        R: CryptoRng + Rng;
+}
+
+impl PacketUserIdExt for UserId {
+    fn sign_third_party_with<R, K, C>(
+        &self,
+        certifier_secret_key: &K,
+        certified_primary_key: &C,
+        certifier_user_id: Option<&UserId>,
+        at_date: UnixTime,
+        preferred_hash: HashAlgorithm,
+        rng: R,
+        profile: &Profile,
+    ) -> Result<Signature, SigningError>
+    where
+        K: SigningKey,
+        C: KeyDetails + Serialize,
+        R: CryptoRng + Rng,
+    {
+        let config = configure_third_party_certification_signature(
+            certifier_secret_key,
+            at_date,
+            preferred_hash,
+            certifier_user_id,
+            profile,
+            rng,
+        )?;
+
+        config
+            .sign_certification_third_party(
+                certifier_secret_key,
+                &Password::empty(),
+                certified_primary_key,
+                self.tag(),
+                self,
+            )
+            .map_err(SigningError::Sign)
     }
 }
 

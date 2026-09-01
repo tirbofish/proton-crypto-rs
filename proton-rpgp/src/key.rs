@@ -14,8 +14,8 @@ use zeroize::Zeroizing;
 
 use crate::{
     key::{params::PlainSecretParamsExt, preferences::RecipientsAlgorithms},
-    CheckUnixTime, DataEncoding, EncryptionError, ExpectLockedError, KeyOperationError,
-    KeySecretParamValidationError, Profile, ResolvedDataEncoding,
+    CheckUnixTime, DataEncoding, EncryptionError, ExpectLockedError, KeyCertificationError,
+    KeyOperationError, KeySecretParamValidationError, Profile, ResolvedDataEncoding, UnixTime,
 };
 
 pub mod certifications;
@@ -157,6 +157,29 @@ impl PublicKey {
                 Ok(buf)
             }
         }
+    }
+
+    /// Certifies the user-id of this key with an external `certifier` key.
+    ///
+    /// For example: Proton CA
+    pub fn certify_with_external(
+        &self,
+        certifier: &PrivateKey,
+        email: &str,
+        date: UnixTime,
+        profile: &Profile,
+    ) -> Result<Self, KeyCertificationError> {
+        let certified_user_ids = certify_user_id_with_external(
+            &self.inner.primary_key,
+            &self.inner.details.users,
+            certifier,
+            email,
+            date,
+            profile,
+        )?;
+        let mut inner = self.inner.clone();
+        inner.details.users = certified_user_ids;
+        Ok(Self { inner })
     }
 }
 
@@ -533,6 +556,30 @@ impl PrivateKey {
     /// The returned modifier allows to motify a copy of the secret key.
     pub fn modify_with_profile(&self, profile: &Profile) -> KeyModifier {
         KeyModifier::new_with_profile(self, profile)
+    }
+
+    /// Certifies the user-id of this key with an external `certifier` key.
+    ///
+    /// For example: Proton CA
+    pub fn certify_with_external(
+        &self,
+        certifier: &PrivateKey,
+        email: &str,
+        date: UnixTime,
+        profile: &Profile,
+    ) -> Result<Self, KeyCertificationError> {
+        let certified_user_ids = certify_user_id_with_external(
+            self.secret.primary_key.public_key(),
+            &self.secret.details.users,
+            certifier,
+            email,
+            date,
+            profile,
+        )?;
+        let mut secret = self.secret.clone();
+        secret.details.users = certified_user_ids;
+        // Recreate the key so that the cached public key stays in sync.
+        Ok(Self::new(secret))
     }
 
     /// Checks if the secret key is a `Proton` forwarding key.
