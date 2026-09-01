@@ -137,6 +137,9 @@ impl KeyDetailsConfig {
 
 pub(crate) trait PacketUserIdExt {
     /// Creates a third-party certification over this user-id with an external certifier key.
+    ///
+    /// If a `lifetime` in seconds is given, the certification expires that many
+    /// seconds after `at_date`.
     #[allow(clippy::too_many_arguments)]
     fn sign_third_party_with<R, K, C>(
         &self,
@@ -145,6 +148,7 @@ pub(crate) trait PacketUserIdExt {
         certifier_user_id: Option<&UserId>,
         at_date: UnixTime,
         preferred_hash: HashAlgorithm,
+        lifetime: Option<u32>,
         rng: R,
         profile: &Profile,
     ) -> Result<Signature, SigningError>
@@ -162,6 +166,7 @@ impl PacketUserIdExt for UserId {
         certifier_user_id: Option<&UserId>,
         at_date: UnixTime,
         preferred_hash: HashAlgorithm,
+        lifetime: Option<u32>,
         rng: R,
         profile: &Profile,
     ) -> Result<Signature, SigningError>
@@ -175,6 +180,7 @@ impl PacketUserIdExt for UserId {
             at_date,
             preferred_hash,
             certifier_user_id,
+            lifetime,
             profile,
             rng,
         )?;
