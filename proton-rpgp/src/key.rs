@@ -121,7 +121,7 @@ impl PublicKey {
 
     /// Import an `OpenPGP` public key from a byte slice.
     ///
-    /// Enforces that exaxtly one key is present in the input.
+    /// Enforces that exactly one key is present in the input.
     pub fn import_single_enforce(key_data: &[u8], encoding: DataEncoding) -> crate::Result<Self> {
         let resolved_encoding = encoding.resolve_for_read(key_data);
         let signed_public_key = match resolved_encoding {
@@ -307,7 +307,7 @@ impl LockedPrivateKey {
     /// Import a locked `OpenPGP` secret key from a byte slice.
     ///
     /// Does not check if the key is locked or not.
-    /// Enforces that exatly one key is encoded in the input.
+    /// Enforces that exactly one key is encoded in the input.
     pub fn import_single_enforce(key_data: &[u8], encoding: DataEncoding) -> crate::Result<Self> {
         let resolved_encoding = encoding.resolve_for_read(key_data);
         let secret = match resolved_encoding {
