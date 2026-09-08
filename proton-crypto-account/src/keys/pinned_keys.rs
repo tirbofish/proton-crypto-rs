@@ -74,7 +74,8 @@ impl FromStr for EmailMimeType {
     }
 }
 
-/// Pinned keys represent public address keys extracted from a contact's v-card.
+/// Pinned keys represent public address keys extracted from a contact's v-card
+/// with a verified signature.
 #[derive(Default, Debug, Clone)]
 pub struct PinnedPublicKeys<Pub: PublicKey> {
     /// The imported and extracted public keys form the v-card.
@@ -89,9 +90,6 @@ pub struct PinnedPublicKeys<Pub: PublicKey> {
     pub scheme: Option<PGPScheme>,
     /// Extracted from `x-pm-mimetype` on the v-card email property group.
     pub mime_type: Option<EmailMimeType>,
-    /// Indicates if the pinned keys got extracted from a contact
-    /// v-card with a verified signature.
-    pub contact_signature_verified: bool,
     /// If a v-card signature got verified, contains the signature's timestamp.
     pub signature_timestamp: Option<UnixTimestamp>,
 }
@@ -107,7 +105,6 @@ impl<Pub: PublicKey> PinnedPublicKeys<Pub> {
             sign: None,
             scheme: None,
             mime_type: None,
-            contact_signature_verified: false,
             signature_timestamp: None,
         }
     }
