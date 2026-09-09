@@ -159,6 +159,34 @@ impl From<UnixTime> for Timestamp {
     }
 }
 
+/// `OpenPGP` liftime specification in seconds.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Default)]
+pub struct Lifetime(pgp::types::Duration);
+
+impl From<Lifetime> for std::time::Duration {
+    fn from(value: Lifetime) -> Self {
+        value.0.into()
+    }
+}
+
+impl From<Lifetime> for pgp::types::Duration {
+    fn from(value: Lifetime) -> Self {
+        value.0
+    }
+}
+
+impl Lifetime {
+    /// Returns the number of seconds.
+    pub fn as_secs(self) -> u32 {
+        self.0.as_secs()
+    }
+
+    /// Creates a new [`Lifetime`] from seconds.
+    pub fn from_secs(secs: u32) -> Self {
+        Self(pgp::types::Duration::from_secs(secs))
+    }
+}
+
 /// An optional Unix timestamp used for validating time against in `OpenPGP` operations.
 ///
 /// If unset, time-based checks are disabled.

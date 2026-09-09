@@ -16,7 +16,7 @@ use crate::{
         configure_key_details_signature, configure_subkey_signature,
         configure_third_party_certification_signature,
     },
-    Profile, SigningError, UnixTime,
+    Lifetime, Profile, SigningError, UnixTime,
 };
 
 /// The key detail data to be signed for a key.
@@ -148,7 +148,7 @@ pub(crate) trait PacketUserIdExt {
         certifier_user_id: Option<&UserId>,
         at_date: UnixTime,
         preferred_hash: HashAlgorithm,
-        lifetime: Option<u32>,
+        lifetime: Option<Lifetime>,
         rng: R,
         profile: &Profile,
     ) -> Result<Signature, SigningError>
@@ -166,7 +166,7 @@ impl PacketUserIdExt for UserId {
         certifier_user_id: Option<&UserId>,
         at_date: UnixTime,
         preferred_hash: HashAlgorithm,
-        lifetime: Option<u32>,
+        lifetime: Option<Lifetime>,
         rng: R,
         profile: &Profile,
     ) -> Result<Signature, SigningError>

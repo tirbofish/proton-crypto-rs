@@ -6,7 +6,7 @@ use pgp::{
 
 use crate::{
     convert_user_ids, primary_key_flags, CertificationSelectionExt, CheckUnixTime,
-    KeyCertificationError, KeyGenerationProfileBuilder, KeyModificationError, KeyUserId,
+    KeyCertificationError, KeyGenerationProfileBuilder, KeyModificationError, KeyUserId, Lifetime,
     PacketPublicSubkeyExt, PacketUserIdExt, PrivateKey, PrivateKeySelectionExt, Profile,
     PublicKeySelectionExt, SignatureExt, SignatureUsage, UnixTime, DEFAULT_PROFILE,
 };
@@ -282,11 +282,11 @@ impl KeyModifier {
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn certify_user_id_with_external(
     certified_primary_key: &packet::PublicKey,
-    user_ids: &[SignedUser],
     certifier: &PrivateKey,
+    user_ids: &[SignedUser],
     email: &str,
     date: UnixTime,
-    lifetime: Option<u32>,
+    lifetime: Option<Lifetime>,
     profile: &Profile,
 ) -> Result<Vec<SignedUser>, KeyCertificationError> {
     // Enforce that the key has a single user-id that matches the email.
@@ -366,7 +366,7 @@ mod tests {
 
     use crate::{
         AccessKeyInfo, DataEncoding, KeyCertificationError, KeyGenerationType, KeyGenerator,
-        PrivateKey, PublicKey, SignatureExt, UnixTime, DEFAULT_PROFILE,
+        Lifetime, PrivateKey, PublicKey, SignatureExt, UnixTime, DEFAULT_PROFILE,
         PREFERRED_KEY_GEN_COMPRESSION_ALGORITHMS, PREFERRED_KEY_GEN_HASH_ALGORITHMS,
     };
 
@@ -602,7 +602,7 @@ mod tests {
                 &certifier,
                 TEST_KEY_EMAIL,
                 date,
-                Some(LIFETIME),
+                Some(Lifetime::from_secs(LIFETIME)),
                 &DEFAULT_PROFILE,
             )
             .expect("Failed to certify key");

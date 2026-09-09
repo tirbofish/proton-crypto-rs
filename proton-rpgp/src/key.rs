@@ -15,7 +15,8 @@ use zeroize::Zeroizing;
 use crate::{
     key::{params::PlainSecretParamsExt, preferences::RecipientsAlgorithms},
     CheckUnixTime, DataEncoding, EncryptionError, ExpectLockedError, KeyCertificationError,
-    KeyOperationError, KeySecretParamValidationError, Profile, ResolvedDataEncoding, UnixTime,
+    KeyOperationError, KeySecretParamValidationError, Lifetime, Profile, ResolvedDataEncoding,
+    UnixTime,
 };
 
 pub mod certifications;
@@ -170,13 +171,13 @@ impl PublicKey {
         certifier: &PrivateKey,
         email: &str,
         date: UnixTime,
-        lifetime: Option<u32>,
+        lifetime: Option<Lifetime>,
         profile: &Profile,
     ) -> Result<Self, KeyCertificationError> {
         let certified_user_ids = certify_user_id_with_external(
             &self.inner.primary_key,
-            &self.inner.details.users,
             certifier,
+            &self.inner.details.users,
             email,
             date,
             lifetime,
@@ -574,13 +575,13 @@ impl PrivateKey {
         certifier: &PrivateKey,
         email: &str,
         date: UnixTime,
-        lifetime: Option<u32>,
+        lifetime: Option<Lifetime>,
         profile: &Profile,
     ) -> Result<Self, KeyCertificationError> {
         let certified_user_ids = certify_user_id_with_external(
             self.secret.primary_key.public_key(),
-            &self.secret.details.users,
             certifier,
+            &self.secret.details.users,
             email,
             date,
             lifetime,
