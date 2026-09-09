@@ -8,8 +8,8 @@ use crate::{
     check_signature_details, convert_user_ids, primary_key_flags, AsPublicKeyRef,
     CertificationSelectionExt, CheckUnixTime, KeyCertificationError, KeyGenerationProfileBuilder,
     KeyModificationError, KeyUserId, Lifetime, PacketPublicSubkeyExt, PacketUserIdExt, PrivateKey,
-    PrivateKeySelectionExt, Profile, PublicKey, PublicKeySelectionExt, SignatureError,
-    SignatureExt, SignatureUsage, UnixTime, DEFAULT_PROFILE,
+    PrivateKeySelectionExt, Profile, PublicKey, PublicKeyExt, PublicKeySelectionExt,
+    SignatureError, SignatureExt, SignatureUsage, UnixTime, DEFAULT_PROFILE,
 };
 
 pub struct KeyModifier {
@@ -376,12 +376,12 @@ impl ExternalCertifier<'_, PrivateKey> {
 
 /// A builder to verify that the single user-id of a key was certified by an external
 /// `certifier` key.
-pub struct ExternalVerifier<K> {
+pub struct ExternalVerifier<'a, K> {
     /// The key whose user-id certification is being verified.
     key: K,
 
     /// The primary key of the key that is expected to have issued the certification.
-    certifier_primary_key: packet::PublicKey,
+    certifier_primary_key: &'a PublicKey,
 
     /// The expected email address of the certified user-id.
     check_email: Option<String>,
@@ -393,11 +393,11 @@ pub struct ExternalVerifier<K> {
     profile: Profile,
 }
 
-impl<K> ExternalVerifier<K> {
-    pub(crate) fn new(key: K, certifier: &impl AsPublicKeyRef) -> Self {
+impl<'a, K> ExternalVerifier<'a, K> {
+    pub(crate) fn new(key: K, certifier: &'a impl AsPublicKeyRef) -> Self {
         Self {
             key,
-            certifier_primary_key: certifier.as_public_key().inner.primary_key.clone(),
+            certifier_primary_key: certifier.as_public_key(),
             check_email: None,
             date: UnixTime::now().unwrap_or_default(),
             profile: DEFAULT_PROFILE.clone(),
@@ -423,12 +423,12 @@ impl<K> ExternalVerifier<K> {
     }
 }
 
-impl ExternalVerifier<PublicKey> {
+impl ExternalVerifier<'_, PublicKey> {
     /// Verifies the certification according to the configuration.
     pub fn verify(self) -> Result<(), KeyCertificationError> {
         verify_user_id_with_external(
             &self.key.inner.primary_key,
-            &self.certifier_primary_key,
+            self.certifier_primary_key,
             &self.key.inner.details.users,
             self.check_email.as_deref(),
             self.date,
@@ -437,12 +437,12 @@ impl ExternalVerifier<PublicKey> {
     }
 }
 
-impl ExternalVerifier<PrivateKey> {
+impl ExternalVerifier<'_, PrivateKey> {
     /// Verifies the certification according to the configuration.
     pub fn verify(self) -> Result<(), KeyCertificationError> {
         verify_user_id_with_external(
             self.key.secret.primary_key.public_key(),
-            &self.certifier_primary_key,
+            self.certifier_primary_key,
             &self.key.secret.details.users,
             self.check_email.as_deref(),
             self.date,
@@ -455,7 +455,7 @@ impl ExternalVerifier<PrivateKey> {
 /// `certifier` key, that is not expired at `date`.
 fn verify_user_id_with_external(
     certified_primary_key: &packet::PublicKey,
-    certifier_primary_key: &packet::PublicKey,
+    certifier: &PublicKey,
     user_ids: &[SignedUser],
     check_email: Option<&str>,
     date: UnixTime,
@@ -474,21 +474,45 @@ fn verify_user_id_with_external(
     user.check_validity(certified_primary_key, CheckUnixTime::disable(), profile)
         .map_err(KeyCertificationError::UserIdSelfCertification)?;
 
-    let mut failures: Vec<SignatureError> = Vec::new();
-    for signature in &user.signatures {
-        if let Err(err) = signature.verify_third_party_certification(
-            certified_primary_key,
-            certifier_primary_key,
-            Tag::UserId,
-            &user.id,
-        ) {
-            failures.push(SignatureError::Verification(err));
-            continue;
-        }
+    let verificaiton_keys = certifier
+        .as_signed_public_key()
+        .verification_keys(
+            date.into(),
+            Vec::default(),
+            SignatureUsage::Certify,
+            profile,
+        )
+        .map_err(KeyCertificationError::VerificationKeySelection)?;
 
-        match check_signature_details(signature, CheckUnixTime::enable(date), profile) {
-            Ok(()) => return Ok(()),
-            Err(err) => failures.push(err),
+    let mut failures: Vec<SignatureError> = Vec::new();
+    for signature in user
+        .signatures
+        .iter()
+        .filter(|sig| sig.is_certification() && !sig.is_revocation())
+    {
+        let sig_identifier = signature.issuer_generic_identifier();
+
+        let matching_keys = verificaiton_keys.iter().filter(|key| {
+            sig_identifier
+                .iter()
+                .any(|identifier| identifier == &key.public_key.generic_identifier())
+        });
+
+        for verification_key in matching_keys {
+            if let Err(err) = signature.verify_third_party_certification(
+                certified_primary_key,
+                &verification_key.public_key,
+                Tag::UserId,
+                &user.id,
+            ) {
+                failures.push(SignatureError::Verification(err));
+                continue;
+            }
+
+            match check_signature_details(signature, CheckUnixTime::enable(date), profile) {
+                Ok(()) => return Ok(()),
+                Err(err) => failures.push(err),
+            }
         }
     }
 
@@ -523,12 +547,15 @@ pub(crate) fn certify_user_id_with_external(
         .map_err(KeyCertificationError::UserIdSelfCertification)?;
 
     let certifier_primary_key = certifier.secret.primary_key.public_key();
-    let certification_key = certifier.secret.signing_key(
-        date.into(),
-        Some(certifier_primary_key.legacy_key_id()),
-        SignatureUsage::Certify,
-        profile,
-    )?;
+    let certification_key = certifier
+        .secret
+        .signing_key(
+            date.into(),
+            Some(certifier_primary_key.legacy_key_id()),
+            SignatureUsage::Certify,
+            profile,
+        )
+        .map_err(KeyCertificationError::CertificationKeySelection)?;
     let (certifier_user, _) = certifier
         .secret
         .select_user_id_with_certification(CheckUnixTime::disable(), profile)

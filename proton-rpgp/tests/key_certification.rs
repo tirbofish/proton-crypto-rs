@@ -506,7 +506,7 @@ fn verify_key_not_yet_valid() {
 
     assert!(matches!(
         result,
-        Err(KeyCertificationError::NoValidCertification(_))
+        Err(KeyCertificationError::VerificationKeySelection(_))
     ));
 }
 

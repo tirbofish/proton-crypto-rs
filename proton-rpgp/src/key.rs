@@ -179,7 +179,10 @@ impl PublicKey {
     ///
     /// Returns a builder to configure the optional verification parameters, such as the
     /// expected email of the user-id, the verification date, and the profile to use.
-    pub fn verify_with_external(&self, certifier: &impl AsPublicKeyRef) -> ExternalVerifier<Self> {
+    pub fn verify_with_external<'a>(
+        &self,
+        certifier: &'a impl AsPublicKeyRef,
+    ) -> ExternalVerifier<'a, Self> {
         ExternalVerifier::new(self.clone(), certifier)
     }
 }
@@ -579,7 +582,10 @@ impl PrivateKey {
     ///
     /// Returns a builder to configure the optional verification parameters, such as the
     /// expected email of the user-id, the verification date, and the profile to use.
-    pub fn verify_with_external(&self, certifier: &impl AsPublicKeyRef) -> ExternalVerifier<Self> {
+    pub fn verify_with_external<'a>(
+        &self,
+        certifier: &'a impl AsPublicKeyRef,
+    ) -> ExternalVerifier<'a, Self> {
         ExternalVerifier::new(self.clone(), certifier)
     }
 
