@@ -533,24 +533,20 @@ pub fn certify_public_and_private_key_with_external_key() {
         .expect("Failed to generate certifier key");
 
     let certified_private: PrivateKey = key
-        .certify_with_external(
-            &certifier,
-            TEST_KEY_TO_CERTIFY_EMAIL,
-            date,
-            None,
-            &Profile::default(),
-        )
+        .certify_with_external(&certifier)
+        .with_email(TEST_KEY_TO_CERTIFY_EMAIL)
+        .with_date(date)
+        .with_profile(&Profile::default())
+        .apply()
         .expect("Failed to certify private key");
 
     let certified_public: PublicKey = key
         .as_public_key()
-        .certify_with_external(
-            &certifier,
-            TEST_KEY_TO_CERTIFY_EMAIL,
-            date,
-            None,
-            &Profile::default(),
-        )
+        .certify_with_external(&certifier)
+        .with_email(TEST_KEY_TO_CERTIFY_EMAIL)
+        .with_date(date)
+        .with_profile(&Profile::default())
+        .apply()
         .expect("Failed to certify public key");
 
     for user in [

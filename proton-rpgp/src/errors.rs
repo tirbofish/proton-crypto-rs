@@ -316,7 +316,7 @@ pub enum KeyModificationError {
 #[derive(Debug, thiserror::Error)]
 pub enum KeyCertificationError {
     #[error("The key has too many user ids to certify with an external certifier")]
-    ToManyUserIds,
+    TooManyUserIds,
 
     #[error("The key has no user id to certify")]
     NoUserId,

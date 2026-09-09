@@ -14,9 +14,8 @@ use zeroize::Zeroizing;
 
 use crate::{
     key::{params::PlainSecretParamsExt, preferences::RecipientsAlgorithms},
-    CheckUnixTime, DataEncoding, EncryptionError, ExpectLockedError, KeyCertificationError,
-    KeyOperationError, KeySecretParamValidationError, Lifetime, Profile, ResolvedDataEncoding,
-    UnixTime,
+    CheckUnixTime, DataEncoding, EncryptionError, ExpectLockedError, KeyOperationError,
+    KeySecretParamValidationError, Profile, ResolvedDataEncoding,
 };
 
 pub mod certifications;
@@ -164,28 +163,14 @@ impl PublicKey {
     ///
     /// For example: Proton CA
     ///
-    /// If a `lifetime` in seconds is given, the certification expires that many
-    /// seconds after `date`, otherwise it does not expire.
-    pub fn certify_with_external(
+    /// Returns a builder to configure the optional certification parameters,
+    /// such as the expected email of the user-id, the certification date, the
+    /// lifetime after which the certification expires, and the profile to use.
+    pub fn certify_with_external<'a>(
         &self,
-        certifier: &PrivateKey,
-        email: &str,
-        date: UnixTime,
-        lifetime: Option<Lifetime>,
-        profile: &Profile,
-    ) -> Result<Self, KeyCertificationError> {
-        let certified_user_ids = certify_user_id_with_external(
-            &self.inner.primary_key,
-            certifier,
-            &self.inner.details.users,
-            email,
-            date,
-            lifetime,
-            profile,
-        )?;
-        let mut inner = self.inner.clone();
-        inner.details.users = certified_user_ids;
-        Ok(Self { inner })
+        certifier: &'a PrivateKey,
+    ) -> ExternalCertifier<'a, Self> {
+        ExternalCertifier::new(self.clone(), certifier)
     }
 }
 
@@ -568,29 +553,14 @@ impl PrivateKey {
     ///
     /// For example: Proton CA
     ///
-    /// If a `lifetime` in seconds is given, the certification expires that many
-    /// seconds after `date`, otherwise it does not expire.
-    pub fn certify_with_external(
+    /// Returns a builder to configure the optional certification parameters,
+    /// such as the expected email of the user-id, the certification date, the
+    /// lifetime after which the certification expires, and the profile to use.
+    pub fn certify_with_external<'a>(
         &self,
-        certifier: &PrivateKey,
-        email: &str,
-        date: UnixTime,
-        lifetime: Option<Lifetime>,
-        profile: &Profile,
-    ) -> Result<Self, KeyCertificationError> {
-        let certified_user_ids = certify_user_id_with_external(
-            self.secret.primary_key.public_key(),
-            certifier,
-            &self.secret.details.users,
-            email,
-            date,
-            lifetime,
-            profile,
-        )?;
-        let mut secret = self.secret.clone();
-        secret.details.users = certified_user_ids;
-        // Recreate the key so that the cached public key stays in sync.
-        Ok(Self::new(secret))
+        certifier: &'a PrivateKey,
+    ) -> ExternalCertifier<'a, Self> {
+        ExternalCertifier::new(self.clone(), certifier)
     }
 
     /// Checks if the secret key is a `Proton` forwarding key.
