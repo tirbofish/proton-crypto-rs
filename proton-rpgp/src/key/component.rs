@@ -4,6 +4,7 @@ use pgp::{
     composed::{Message, PlainSessionKey},
     crypto::{ecc_curve::ECCCurve, hash::HashAlgorithm, public_key::PublicKeyAlgorithm},
     packet::{self, PublicKeyEncryptedSessionKey, Signature, SignatureHasher},
+    ser::Serialize,
     types::{
         DecryptionKey, EncryptionKey, Fingerprint, KeyDetails, KeyId, KeyVersion, Password,
         PkeskVersion, PublicParams, SecretParams, SigningKey, Timestamp, VerifyingKey,
@@ -470,6 +471,22 @@ impl EncryptionKey for AnyPublicKey<'_> {
         match self {
             AnyPublicKey::PrimaryPublicKey(key) => key.encrypt(rng, plain, typ),
             AnyPublicKey::PublicSubKey(key) => key.encrypt(rng, plain, typ),
+        }
+    }
+}
+
+impl Serialize for AnyPublicKey<'_> {
+    fn to_writer<W: std::io::Write>(&self, w: &mut W) -> pgp::errors::Result<()> {
+        match self {
+            AnyPublicKey::PrimaryPublicKey(public_key) => public_key.to_writer(w),
+            AnyPublicKey::PublicSubKey(public_subkey) => public_subkey.to_writer(w),
+        }
+    }
+
+    fn write_len(&self) -> usize {
+        match self {
+            AnyPublicKey::PrimaryPublicKey(public_key) => public_key.write_len(),
+            AnyPublicKey::PublicSubKey(public_subkey) => public_subkey.write_len(),
         }
     }
 }

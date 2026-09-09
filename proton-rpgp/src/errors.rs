@@ -334,7 +334,10 @@ pub enum KeyCertificationError {
     CertifierUserId(KeyCertificationSelectionError),
 
     #[error("Failed to select a certification key in the certifier key: {0}")]
-    CertificationKeySelection(#[from] KeyValidationError),
+    CertificationKeySelection(KeyValidationError),
+
+    #[error("Failed to select key for verifiying certifications: {0}")]
+    VerificationKeySelection(KeyValidationError),
 
     #[error("Failed to create the certification signature: {0}")]
     Signing(#[from] SigningError),
