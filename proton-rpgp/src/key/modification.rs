@@ -404,7 +404,7 @@ pub(crate) fn certify_user_id_with_external(
     let certification_key = certifier.secret.signing_key(
         date.into(),
         Some(certifier_primary_key.legacy_key_id()),
-        SignatureUsage::Sign,
+        SignatureUsage::Certify,
         profile,
     )?;
     let (certifier_user, _) = certifier
