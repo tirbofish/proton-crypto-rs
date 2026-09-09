@@ -338,6 +338,9 @@ pub enum KeyCertificationError {
 
     #[error("Failed to create the certification signature: {0}")]
     Signing(#[from] SigningError),
+
+    #[error("No valid certification signature from the given certifier was found: {0}")]
+    NoValidCertification(ErrorList<SignatureError>),
 }
 
 #[derive(Debug, thiserror::Error)]
