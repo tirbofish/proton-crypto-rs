@@ -198,7 +198,7 @@ pub(crate) fn configure_third_party_certification_signature<K, R>(
     at_date: UnixTime,
     preferred_hash: HashAlgorithm,
     certifier_user_id: Option<&UserId>,
-    lifetime: Option<u32>,
+    lifetime: Option<crate::Lifetime>,
     profile: &Profile,
     mut rng: R,
 ) -> Result<SignatureConfig, SigningError>
@@ -225,7 +225,7 @@ where
     // Let the certification expire after the given lifetime.
     if let Some(lifetime) = lifetime {
         hashed_subpackets.push(
-            Subpacket::critical(SubpacketData::SignatureExpirationTime(Duration::from_secs(
+            Subpacket::critical(SubpacketData::SignatureExpirationTime(Duration::from(
                 lifetime,
             )))
             .map_err(SigningError::Sign)?,
