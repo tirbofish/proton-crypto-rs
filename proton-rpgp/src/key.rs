@@ -172,6 +172,16 @@ impl PublicKey {
     ) -> ExternalCertifier<'a, Self> {
         ExternalCertifier::new(self.clone(), certifier)
     }
+
+    /// Verifies that the user-id of this key was certified by an external `certifier` key.
+    ///
+    /// For example: Proton CA
+    ///
+    /// Returns a builder to configure the optional verification parameters, such as the
+    /// expected email of the user-id, the verification date, and the profile to use.
+    pub fn verify_with_external(&self, certifier: &impl AsPublicKeyRef) -> ExternalVerifier<Self> {
+        ExternalVerifier::new(self.clone(), certifier)
+    }
 }
 
 /// A generic locked `OpenPGP` secret key.
@@ -561,6 +571,16 @@ impl PrivateKey {
         certifier: &'a PrivateKey,
     ) -> ExternalCertifier<'a, Self> {
         ExternalCertifier::new(self.clone(), certifier)
+    }
+
+    /// Verifies that the user-id of this key was certified by an external `certifier` key.
+    ///
+    /// For example: Proton CA
+    ///
+    /// Returns a builder to configure the optional verification parameters, such as the
+    /// expected email of the user-id, the verification date, and the profile to use.
+    pub fn verify_with_external(&self, certifier: &impl AsPublicKeyRef) -> ExternalVerifier<Self> {
+        ExternalVerifier::new(self.clone(), certifier)
     }
 
     /// Checks if the secret key is a `Proton` forwarding key.
