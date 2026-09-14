@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - 2025-00-00
 
+## [0.20.0] - 2026-09-15
+
+### Changed
+
+- Removed the unused `contact_signature_verified` field from `PinnedPublicKeys`.
+- Update `proton-crypto` to `0.14.0`.
+- Wildcard `facet` to `>=0.44`.
+
 ## [0.19.2] - 2026-07-02
 
 ### Changed

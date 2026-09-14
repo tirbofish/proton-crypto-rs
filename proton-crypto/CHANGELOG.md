@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - 2025-00-00
 
+## [0.14.0] - 2026-09-15
+
+### Added
+
+- Add a 60s clock skew for key generation and signature verification time checks, aligning behavior with pmcrypto.
+- Add `jiff` feature flag with `TryFrom` conversions between `UnixTimestamp` and `jiff::Timestamp`.
+
+### Changed
+
+- Bump `proton-rpgp` to `0.6.0`.
+- Bump `gopenpgp-sys` to `0.3.8`.
+- `UnixTimestamp::zero()` no longer disables OpenPGP time-based checks; it is now treated as the Unix epoch.
+- Wildcard `facet` to `>=0.44`.
+
 ## [0.13.2] - 2026-07-02
 
 ### Changed
