@@ -1280,7 +1280,7 @@ checksum = "e4eba85ea1d0a966a983acd07deee566e67395d2d96b6fb39e62b5a833f1eb0b"
 
 [[package]]
 name = "gopenpgp-sys"
-version = "0.3.7"
+version = "0.3.8"
 dependencies = [
  "base64 0.22.1",
  "bindgen",
@@ -2123,7 +2123,7 @@ dependencies = [
 
 [[package]]
 name = "proton-crypto"
-version = "0.13.2"
+version = "0.14.0"
 dependencies = [
  "facet",
  "gopenpgp-sys",
@@ -2142,7 +2142,7 @@ dependencies = [
 
 [[package]]
 name = "proton-crypto-account"
-version = "0.19.2"
+version = "0.20.0"
 dependencies = [
  "base64 0.22.1",
  "derive_more",
@@ -2189,7 +2189,7 @@ dependencies = [
 
 [[package]]
 name = "proton-rpgp"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "hex",
  "kem",
