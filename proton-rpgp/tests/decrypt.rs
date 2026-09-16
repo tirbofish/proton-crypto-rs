@@ -2,8 +2,9 @@ use std::{fs, path::PathBuf};
 
 use pgp::crypto::sym::SymmetricKeyAlgorithm;
 use proton_rpgp::{
-    AsPublicKeyRef, DataEncoding, DecryptionError, Decryptor, Error, ExternalDetachedSignature,
-    PrivateKey, Profile, ProfileSettings, UnixTime, VerificationContext, VerificationError,
+    AsPublicKeyRef, DataEncoding, DecryptionError, Decryptor, Encryptor, Error,
+    ExternalDetachedSignature, PrivateKey, Profile, ProfileSettings, UnixTime, VerificationContext,
+    VerificationError,
 };
 
 pub const TEST_KEY: &str = include_str!("../test-data/keys/private_key_v4.asc");
@@ -189,6 +190,44 @@ pub fn decrypt_and_verify_encrypted_message_v4_multi_key_packets() {
 
     assert_eq!(verified_data.data, b"hello world");
     assert!(verified_data.verification_result.is_ok());
+}
+
+#[test]
+#[allow(clippy::missing_panics_doc)]
+pub fn decrypt_message_v4_prefers_pkesk_over_skesk() {
+    const SKESK_BEFORE_PKESK_MESSAGE: &str =
+        include_str!("../test-data/messages/encrypted_message_v4_skesk_before_pkesk.asc");
+    let key = PrivateKey::import_unlocked(TEST_KEY.as_bytes(), DataEncoding::Armored)
+        .expect("Failed to import key");
+
+    let verified_data = Decryptor::default()
+        .with_decryption_key(&key)
+        .with_passphrase("password")
+        .decrypt(SKESK_BEFORE_PKESK_MESSAGE, DataEncoding::Armored)
+        .expect("Failed to decrypt");
+
+    assert_eq!(verified_data.data, b"hello world");
+
+    let failed_decryption = Decryptor::default()
+        .with_passphrase("password")
+        .decrypt(SKESK_BEFORE_PKESK_MESSAGE, DataEncoding::Armored)
+        .expect_err("Should fail to decrypt");
+
+    assert!(matches!(
+        failed_decryption,
+        Error::Decryption(DecryptionError::InvalidSessionKey(_))
+    ));
+    assert_eq!(
+        failed_decryption.to_string(),
+        "Proton-rPGP: Failed to decrypt with session key: IO error: Modification Detection Code error"
+    );
+
+    let verified_data = Decryptor::default()
+        .with_passphrase("other-password")
+        .decrypt(SKESK_BEFORE_PKESK_MESSAGE, DataEncoding::Armored)
+        .expect("Failed to decrypt");
+
+    assert_eq!(verified_data.data, b"hello world");
 }
 
 #[test]
@@ -582,6 +621,36 @@ pub fn decrypt_encrypted_message_v4_compressed() {
 
 #[test]
 #[allow(clippy::missing_panics_doc)]
+#[allow(clippy::indexing_slicing)]
+pub fn decrypt_stream_detects_modification() {
+    let input_data = b"hello world".repeat(64);
+    let key = PrivateKey::import_unlocked(TEST_KEY.as_bytes(), DataEncoding::Armored)
+        .expect("Failed to import key");
+
+    let message = Encryptor::default()
+        .with_encryption_key(key.as_public_key())
+        .encrypt(&input_data)
+        .expect("Failed to encrypt");
+
+    let mut tampered = message.as_key_packets_unchecked().to_vec();
+    let mut data_packet = message.as_data_packet_unchecked().to_vec();
+    let last = data_packet.len() - 1;
+    data_packet[last] ^= 0xFF;
+    tampered.extend_from_slice(&data_packet);
+
+    let failed = match Decryptor::default()
+        .with_decryption_key(&key)
+        .decrypt_stream(&tampered[..], DataEncoding::Unarmored)
+    {
+        Ok(mut reader) => reader.discard_all_data().is_err(),
+        Err(_) => true,
+    };
+
+    assert!(failed, "Decryption of a tampered message must fail");
+}
+
+#[test]
+#[allow(clippy::missing_panics_doc)]
 pub fn decrypt_message_v4_with_password_limit_fails() {
     const INPUT_DATA: &str =
         include_str!("../test-data/messages/encrypted_message_v4_password.asc");
@@ -595,4 +664,24 @@ pub fn decrypt_message_v4_with_password_limit_fails() {
         .with_passphrase(password)
         .decrypt(INPUT_DATA, DataEncoding::Armored)
         .expect_err("should fail");
+}
+
+#[test]
+#[allow(clippy::missing_panics_doc)]
+pub fn decrypt_rejects_non_integrity_protected_message() {
+    const KEY: &str = include_str!("../test-data/keys/private_key_v4_for_no_mdc.asc");
+    const INPUT_DATA: &str = include_str!("../test-data/messages/encrypted_message_v4_no_mdc.asc");
+
+    let key = PrivateKey::import_unlocked(KEY.as_bytes(), DataEncoding::Armored)
+        .expect("Failed to import key");
+
+    let decryption_result = Decryptor::default()
+        .with_decryption_key(&key)
+        .with_verification_key(key.as_public_key())
+        .decrypt(INPUT_DATA, DataEncoding::Armored);
+
+    assert!(matches!(
+        decryption_result,
+        Err(Error::Decryption(DecryptionError::InvalidSessionKey(_)))
+    ));
 }

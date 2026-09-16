@@ -33,6 +33,9 @@ pub enum Error {
     KeyModification(#[from] KeyModificationError),
 
     #[error("{LIB_ERROR_PREFIX}: {0}")]
+    KeyCertification(#[from] KeyCertificationError),
+
+    #[error("{LIB_ERROR_PREFIX}: {0}")]
     Signing(#[from] SigningError),
 
     #[error("{LIB_ERROR_PREFIX}: {0}")]
@@ -171,6 +174,12 @@ pub enum KeyOperationError {
     #[error("Failed to decode OpenPGP key: {0}")]
     Decode(pgp::errors::Error),
 
+    #[error("Failed to find OpenPGP key")]
+    DecodeNotFound,
+
+    #[error("Multiple keys found in the input")]
+    DecodeMultipleKeys,
+
     #[error("Key is locked")]
     Locked,
 
@@ -302,6 +311,39 @@ pub enum KeyModificationError {
 
     #[error("Failed to modify primary key params: {0}")]
     PrimaryKeyModification(pgp::errors::Error),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum KeyCertificationError {
+    #[error("The key has too many user ids to certify with an external certifier")]
+    TooManyUserIds,
+
+    #[error("The key has no user id to certify")]
+    NoUserId,
+
+    #[error("The user id of the key is not valid utf-8")]
+    InvalidUserId,
+
+    #[error("The user id of the key does not contain the email address {0}")]
+    EmailMismatch(String),
+
+    #[error("Failed to load a valid self-certification for the user id to certify: {0}")]
+    UserIdSelfCertification(KeyCertificationSelectionError),
+
+    #[error("Failed to load a valid user id in the certifier key: {0}")]
+    CertifierUserId(KeyCertificationSelectionError),
+
+    #[error("Failed to select a certification key in the certifier key: {0}")]
+    CertificationKeySelection(KeyValidationError),
+
+    #[error("Failed to select key for verifiying certifications: {0}")]
+    VerificationKeySelection(KeyValidationError),
+
+    #[error("Failed to create the certification signature: {0}")]
+    Signing(#[from] SigningError),
+
+    #[error("No valid certification signature from the given certifier was found: {0}")]
+    NoValidCertification(ErrorList<SignatureError>),
 }
 
 #[derive(Debug, thiserror::Error)]

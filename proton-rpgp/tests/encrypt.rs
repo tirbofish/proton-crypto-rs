@@ -1,4 +1,4 @@
-use std::sync::{Arc, LazyLock};
+use std::sync::{Arc, LazyLock, Mutex};
 
 use pgp::{
     crypto::{
@@ -13,7 +13,8 @@ use proton_rpgp::{
     AccessKeyInfo, AeadCiphersuite, AsPublicKeyRef, DataEncoding, DecryptionError, Decryptor,
     EncryptedMessage, EncryptedMessageInfo, EncryptionError, EncryptionMechanism,
     EncryptionObserver, Encryptor, Error, KeyGenerator, PrivateKey, Profile, ProfileSettings,
-    PublicKey, SessionKey, StringToKeyOption, UnixTime, VerificationError, HAZARD_AEAD_PROFILE,
+    PublicKey, SessionKey, SignatureContext, StringToKeyOption, UnixTime, VerificationContext,
+    VerificationError, HAZARD_AEAD_PROFILE,
 };
 
 mod utils;
@@ -647,6 +648,89 @@ pub fn generate_session_key_for_encryption() {
 
 #[test]
 #[allow(clippy::missing_panics_doc)]
+pub fn encrypt_with_generated_session_key_from_recipient_preferences() {
+    let plain_data = b"hello world";
+
+    let key = PrivateKey::import_unlocked(TEST_KEY.as_bytes(), DataEncoding::Armored)
+        .expect("Failed to import key");
+
+    let session_key = Encryptor::default()
+        .with_encryption_key(key.as_public_key())
+        .generate_session_key()
+        .expect("Failed to generate session key");
+
+    assert_eq!(session_key.algorithm(), Some(SymmetricKeyAlgorithm::AES256));
+    assert_eq!(session_key.export_bytes().len(), 32);
+
+    let mut message = Encryptor::default()
+        .with_encryption_key(key.as_public_key())
+        .encrypt_session_key(&session_key)
+        .expect("Failed to encrypt session key");
+
+    let data_packet = Encryptor::default()
+        .with_session_key(&session_key)
+        .encrypt_raw(plain_data, DataEncoding::Unarmored)
+        .expect("Failed to encrypt");
+
+    message.extend(data_packet.iter());
+
+    let output_data = Decryptor::default()
+        .with_decryption_key(&key)
+        .with_verification_key(key.as_public_key())
+        .decrypt(message, DataEncoding::Unarmored)
+        .expect("Failed to decrypt");
+
+    assert_eq!(output_data.data, plain_data);
+    assert!(matches!(
+        output_data.verification_result,
+        Err(VerificationError::NotSigned)
+    ));
+}
+
+#[test]
+#[allow(clippy::missing_panics_doc)]
+pub fn encrypt_and_decrypt_with_signature_context() {
+    let date = UnixTime::new(1_752_476_259);
+    let plain_data = b"hello world";
+    let ctx_name = "test-context";
+
+    let key = PrivateKey::import_unlocked(TEST_KEY.as_bytes(), DataEncoding::Armored)
+        .expect("Failed to import key");
+
+    let encrypted_data = Encryptor::default()
+        .with_encryption_key(key.as_public_key())
+        .with_signing_key(&key)
+        .with_signature_context(SignatureContext::new(ctx_name.into(), true))
+        .at_date(date.into())
+        .encrypt_raw(plain_data, DataEncoding::Armored)
+        .expect("Failed to encrypt");
+
+    let output_data = Decryptor::default()
+        .with_decryption_key(&key)
+        .with_verification_key(key.as_public_key())
+        .with_verification_context(VerificationContext::new_required(ctx_name.into()))
+        .at_date(date.into())
+        .decrypt(encrypted_data.as_slice(), DataEncoding::Armored)
+        .expect("Failed to decrypt");
+    assert_eq!(output_data.data, plain_data);
+    assert!(output_data.verification_result.is_ok());
+
+    let output_data = Decryptor::default()
+        .with_decryption_key(&key)
+        .with_verification_key(key.as_public_key())
+        .with_verification_context(VerificationContext::new_required("wrong".into()))
+        .at_date(date.into())
+        .decrypt(encrypted_data.as_slice(), DataEncoding::Armored)
+        .expect("Failed to decrypt");
+    assert_eq!(output_data.data, plain_data);
+    assert!(matches!(
+        output_data.verification_result,
+        Err(VerificationError::BadContext(_, _))
+    ));
+}
+
+#[test]
+#[allow(clippy::missing_panics_doc)]
 pub fn encrypt_data_with_session_key_seipdv1() {
     let session_key = dummy_session_key(false);
     let plain_data = b"hello world";
@@ -1161,6 +1245,147 @@ pub fn encrypt_message_v4_stream_split_no_key_packets() {
     assert!(key_packets.is_empty());
 }
 
+#[derive(Debug, Default)]
+struct MechanismObserver(Mutex<Option<EncryptionMechanism>>);
+
+impl EncryptionObserver for MechanismObserver {
+    fn observe_encryption_keys(&self, _keys: &[PublicComponentKey<'_>]) {}
+
+    fn observe_signing_keys(&self, _key_views: &[PrivateComponentKeyPublicView<'_>]) {}
+
+    fn observe_encryption_mechanism(&self, mechanism: &EncryptionMechanism) {
+        *self.0.lock().unwrap() = Some(*mechanism);
+    }
+}
+
+#[test]
+#[allow(clippy::missing_panics_doc)]
+pub fn encrypt_negotiates_seipdv2_for_aead_recipient() {
+    let input_data = b"hello world";
+    let key = PrivateKey::import_unlocked(TEST_KEY_V6.as_bytes(), DataEncoding::Armored)
+        .expect("Failed to import key");
+
+    let profile = ProfileSettings::builder()
+        .preferred_aead_ciphersuite(Some((SymmetricKeyAlgorithm::AES256, AeadAlgorithm::Ocb)))
+        .build_into_profile();
+
+    let observer = Arc::new(MechanismObserver::default());
+
+    let encrypted_data = Encryptor::new(profile)
+        .with_encryption_key(key.as_public_key())
+        .with_observer(observer.clone())
+        .encrypt_raw(input_data, DataEncoding::Armored)
+        .expect("Failed to encrypt");
+
+    assert!(matches!(
+        observer.0.lock().unwrap().expect("mechanism observed"),
+        EncryptionMechanism::SeipdV2(_, _)
+    ));
+
+    let verified_data = Decryptor::default()
+        .with_decryption_key(&key)
+        .decrypt(encrypted_data.as_slice(), DataEncoding::Armored)
+        .expect("Failed to decrypt");
+    assert_eq!(verified_data.data, input_data);
+}
+
+#[test]
+#[allow(clippy::missing_panics_doc)]
+pub fn encrypt_uses_seipdv1_by_default() {
+    let input_data = b"hello world";
+    let key = PrivateKey::import_unlocked(TEST_KEY_V6.as_bytes(), DataEncoding::Armored)
+        .expect("Failed to import key");
+
+    let observer = Arc::new(MechanismObserver::default());
+
+    let encrypted_data = Encryptor::default()
+        .with_encryption_key(key.as_public_key())
+        .with_observer(observer.clone())
+        .encrypt_raw(input_data, DataEncoding::Armored)
+        .expect("Failed to encrypt");
+
+    assert!(matches!(
+        observer.0.lock().unwrap().expect("mechanism observed"),
+        EncryptionMechanism::SeipdV1(_)
+    ));
+
+    let verified_data = Decryptor::default()
+        .with_decryption_key(&key)
+        .decrypt(encrypted_data.as_slice(), DataEncoding::Armored)
+        .expect("Failed to decrypt");
+    assert_eq!(verified_data.data, input_data);
+}
+
+#[test]
+#[allow(clippy::missing_panics_doc)]
+pub fn encrypt_negotiates_seipdv1_for_mixed_recipients() {
+    let input_data = b"hello world";
+    let key_v4 = PrivateKey::import_unlocked(TEST_KEY.as_bytes(), DataEncoding::Armored)
+        .expect("Failed to import key");
+    let key_v6 = PrivateKey::import_unlocked(TEST_KEY_V6.as_bytes(), DataEncoding::Armored)
+        .expect("Failed to import key");
+
+    let profile = ProfileSettings::builder()
+        .preferred_aead_ciphersuite(Some((SymmetricKeyAlgorithm::AES256, AeadAlgorithm::Ocb)))
+        .build_into_profile();
+
+    let observer = Arc::new(MechanismObserver::default());
+
+    let encrypted_data = Encryptor::new(profile)
+        .with_encryption_keys([key_v4.as_public_key(), key_v6.as_public_key()])
+        .with_observer(observer.clone())
+        .encrypt_raw(input_data, DataEncoding::Armored)
+        .expect("Failed to encrypt");
+
+    assert!(matches!(
+        observer.0.lock().unwrap().expect("mechanism observed"),
+        EncryptionMechanism::SeipdV1(_)
+    ));
+
+    // Both recipients can decrypt the SEIPD v1 message.
+    for key in [&key_v4, &key_v6] {
+        let verified_data = Decryptor::default()
+            .with_decryption_key(key)
+            .decrypt(encrypted_data.as_slice(), DataEncoding::Armored)
+            .expect("Failed to decrypt");
+        assert_eq!(verified_data.data, input_data);
+    }
+}
+
+#[test]
+#[allow(clippy::missing_panics_doc)]
+pub fn encrypt_message_with_multiple_passphrases() {
+    let input_data = b"hello world";
+    let passphrases = ["first-password", "second-password"];
+
+    let encrypted_data = Encryptor::new(TEST_PW_PROFILE.clone())
+        .with_passphrases(passphrases)
+        .encrypt_raw(input_data, DataEncoding::Armored)
+        .expect("Failed to encrypt");
+
+    // Each individual passphrase decrypts the message.
+    for passphrase in passphrases {
+        let decrypted_data = Decryptor::new(TEST_PW_PROFILE.clone())
+            .with_passphrase(passphrase)
+            .decrypt(encrypted_data.as_slice(), DataEncoding::Armored)
+            .expect("Failed to decrypt");
+        assert_eq!(decrypted_data.data, input_data);
+    }
+
+    // Decryption succeeds when the correct passphrase is tried among others.
+    let decrypted_data = Decryptor::new(TEST_PW_PROFILE.clone())
+        .with_passphrases(["wrong-password", "second-password"])
+        .decrypt(encrypted_data.as_slice(), DataEncoding::Armored)
+        .expect("Failed to decrypt");
+    assert_eq!(decrypted_data.data, input_data);
+
+    // Decryption fails when none of the passphrases match.
+    Decryptor::new(TEST_PW_PROFILE.clone())
+        .with_passphrases(["wrong-1", "wrong-2"])
+        .decrypt(encrypted_data.as_slice(), DataEncoding::Armored)
+        .expect_err("Decryption must fail with wrong passphrases");
+}
+
 fn dummy_session_key(seipdv2: bool) -> SessionKey {
     // NOT SECURE! This is only used for testing.
     const DUMMY_SK: &[u8] = b"00000000000000000000000000000000";
@@ -1606,6 +1831,43 @@ fn aead_seipd_v2_chunk_size_override() {
     assert_eq!(seipd_v2_chunk_size(&message), ChunkSize::C64B);
 }
 
+#[test]
+#[allow(clippy::missing_panics_doc)]
+pub fn encrypt_utf8_normalizes_line_endings() {
+    let date = UnixTime::new(1_752_476_259);
+    let input_data = b"line one\nline two\n";
+
+    let key = PrivateKey::import_unlocked(TEST_KEY.as_bytes(), DataEncoding::Armored)
+        .expect("Failed to import key");
+
+    let encrypted_data = Encryptor::default()
+        .with_encryption_key(key.as_public_key())
+        .with_signing_key(&key)
+        .at_date(date.into())
+        .as_utf8()
+        .encrypt_raw(input_data, DataEncoding::Armored)
+        .expect("Failed to encrypt");
+
+    let native = Decryptor::default()
+        .with_decryption_key(&key)
+        .with_verification_key(key.as_public_key())
+        .at_date(date.into())
+        .output_utf8()
+        .decrypt(encrypted_data.as_slice(), DataEncoding::Armored)
+        .expect("Failed to decrypt");
+    assert_eq!(native.data, b"line one\nline two\n");
+    assert!(native.verification_result.is_ok());
+
+    let canonical = Decryptor::default()
+        .with_decryption_key(&key)
+        .with_verification_key(key.as_public_key())
+        .at_date(date.into())
+        .decrypt(encrypted_data.as_slice(), DataEncoding::Armored)
+        .expect("Failed to decrypt");
+    assert_eq!(canonical.data, b"line one\r\nline two\r\n");
+    assert!(canonical.verification_result.is_ok());
+}
+
 fn seipd_v2_chunk_size(encrypted_message: &[u8]) -> ChunkSize {
     let pgp::packet::Packet::SymEncryptedProtectedData(seipd) =
         PacketParser::new(encrypted_message)
@@ -1619,4 +1881,106 @@ fn seipd_v2_chunk_size(encrypted_message: &[u8]) -> ChunkSize {
         panic!("Expected SEIPD v2 SymEncryptedProtectedData packet");
     };
     *chunk_size
+}
+
+#[test]
+#[allow(clippy::missing_panics_doc)]
+pub fn encrypt_and_sign_message_v4_empty() {
+    let input_data = b"";
+    let key = PrivateKey::import_unlocked(TEST_KEY.as_bytes(), DataEncoding::Armored)
+        .expect("Failed to import key");
+
+    let encrypted_data = Encryptor::default()
+        .with_encryption_key(key.as_public_key())
+        .with_signing_key(&key)
+        .encrypt_raw(input_data, DataEncoding::Armored)
+        .expect("Failed to encrypt");
+
+    let verified_data = Decryptor::default()
+        .with_decryption_key(&key)
+        .with_verification_key(key.as_public_key())
+        .decrypt(encrypted_data.as_slice(), DataEncoding::Armored)
+        .expect("Failed to decrypt");
+
+    assert_eq!(verified_data.data, input_data);
+    assert!(verified_data.verification_result.is_ok());
+}
+
+fn encrypt_sign_decrypt_verify_roundtrip(locked_key: &str) {
+    let input_data = b"hello world";
+    let key = PrivateKey::import(locked_key.as_bytes(), b"password", DataEncoding::Armored)
+        .expect("Failed to import key");
+
+    let encrypted_data = Encryptor::default()
+        .with_encryption_key(key.as_public_key())
+        .with_signing_key(&key)
+        .encrypt_raw(input_data, DataEncoding::Armored)
+        .expect("Failed to encrypt");
+
+    let verified_data = Decryptor::default()
+        .with_decryption_key(&key)
+        .with_verification_key(key.as_public_key())
+        .decrypt(encrypted_data.as_slice(), DataEncoding::Armored)
+        .expect("Failed to decrypt");
+
+    assert_eq!(verified_data.data, input_data);
+    assert!(verified_data.verification_result.is_ok());
+}
+
+#[test]
+#[allow(clippy::missing_panics_doc)]
+pub fn encrypt_sign_decrypt_verify_rsa_1023() {
+    const TEST_KEY_RSA_1023: &str =
+        include_str!("../test-data/keys/locked_private_key_v4_rsa_1023.asc");
+    encrypt_sign_decrypt_verify_roundtrip(TEST_KEY_RSA_1023);
+}
+
+#[test]
+#[allow(clippy::missing_panics_doc)]
+pub fn encrypt_sign_decrypt_verify_nist_p256() {
+    const TEST_KEY_NIST_P256: &str =
+        include_str!("../test-data/keys/locked_private_key_v4_nist_p256.asc");
+    encrypt_sign_decrypt_verify_roundtrip(TEST_KEY_NIST_P256);
+}
+
+#[test]
+#[allow(clippy::missing_panics_doc)]
+pub fn encrypt_sign_decrypt_verify_nist_p521() {
+    const TEST_KEY_NIST_P521: &str =
+        include_str!("../test-data/keys/locked_private_key_v4_nist_p521.asc");
+    encrypt_sign_decrypt_verify_roundtrip(TEST_KEY_NIST_P521);
+}
+
+#[test]
+#[allow(clippy::missing_panics_doc)]
+pub fn encrypt_sign_decrypt_verify_v6_curve448() {
+    const TEST_KEY_V6_CURVE448: &str =
+        include_str!("../test-data/keys/locked_private_key_v6_curve448.asc");
+    encrypt_sign_decrypt_verify_roundtrip(TEST_KEY_V6_CURVE448);
+}
+
+#[test]
+#[allow(clippy::missing_panics_doc)]
+pub fn encrypt_sign_brainpool_p256_is_unsupported() {
+    const TEST_KEY_BRAINPOOL_P256: &str =
+        include_str!("../test-data/keys/locked_private_key_v4_brainpool_p256.asc");
+    let input_data = b"hello world";
+    let key = PrivateKey::import(
+        TEST_KEY_BRAINPOOL_P256.as_bytes(),
+        b"password",
+        DataEncoding::Armored,
+    )
+    .expect("Failed to import key");
+
+    let result = Encryptor::default()
+        .with_encryption_key(key.as_public_key())
+        .with_signing_key(&key)
+        .encrypt_raw(input_data, DataEncoding::Armored);
+
+    assert!(matches!(
+        result,
+        Err(Error::Encryption(EncryptionError::EncryptionKeySelection(
+            _
+        )))
+    ));
 }

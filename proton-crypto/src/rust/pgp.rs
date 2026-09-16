@@ -8,8 +8,9 @@ use proton_rpgp::{
 
 use crate::{
     crypto::{
-        DataEncoding, Decryptor as _, Encryptor, KeyGenerator as _, PGPProvider, PGPProviderAsync,
-        PGPProviderSync, SessionKeyAlgorithm, Signer as _, UnixTimestamp, Verifier as _,
+        adjust_key_generation_time, adjust_verification_time, DataEncoding, Decryptor as _,
+        Encryptor, KeyGenerator as _, PGPProvider, PGPProviderAsync, PGPProviderSync,
+        SessionKeyAlgorithm, Signer as _, UnixTimestamp, Verifier as _,
     },
     rust::pgp::{
         RustArmorer, RustDecryptor, RustEncryptor, RustKeyGenerator, RustPGPMessage,
@@ -56,11 +57,7 @@ impl From<RustCheckUnixTime> for UnixTimestamp {
 
 impl From<UnixTimestamp> for RustCheckUnixTime {
     fn from(value: UnixTimestamp) -> Self {
-        if value.is_zero() {
-            Self::disable()
-        } else {
-            Self::enable(value.into())
-        }
+        Self::enable(value.into())
     }
 }
 
@@ -241,7 +238,8 @@ impl PGPProviderSync for RustPGPProvider {
     }
 
     fn new_decryptor<'a>(&self) -> Self::Decryptor<'a> {
-        RustDecryptor::new(self.profile.clone()).at_verification_time(self.clock.unix_time())
+        RustDecryptor::new(self.profile.clone())
+            .at_verification_time(adjust_verification_time(self.clock.unix_time()))
     }
 
     fn new_signer<'a>(&self) -> Self::Signer<'a> {
@@ -249,11 +247,13 @@ impl PGPProviderSync for RustPGPProvider {
     }
 
     fn new_verifier<'a>(&self) -> Self::Verifier<'a> {
-        RustVerifier::new(self.profile.clone()).at_verification_time(self.clock.unix_time())
+        RustVerifier::new(self.profile.clone())
+            .at_verification_time(adjust_verification_time(self.clock.unix_time()))
     }
 
     fn new_key_generator(&self) -> Self::KeyGenerator {
-        RustKeyGenerator::new().with_generation_time(self.clock.unix_time())
+        RustKeyGenerator::new()
+            .with_generation_time(adjust_key_generation_time(self.clock.unix_time()))
     }
 
     fn armorer(&self) -> Self::Armorer {

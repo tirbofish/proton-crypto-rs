@@ -1,0 +1,4 @@
+# Test fixtures are byte-exact; never apply line-ending conversion.
+# Otherwise Windows (core.autocrlf=true) rewrites LF -> CRLF on checkout
+# and byte comparisons against decrypted output fail.
+* -text

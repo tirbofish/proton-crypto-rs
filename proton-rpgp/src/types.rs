@@ -159,6 +159,34 @@ impl From<UnixTime> for Timestamp {
     }
 }
 
+/// `OpenPGP` liftime specification in seconds.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Default)]
+pub struct Lifetime(pgp::types::Duration);
+
+impl From<Lifetime> for std::time::Duration {
+    fn from(value: Lifetime) -> Self {
+        value.0.into()
+    }
+}
+
+impl From<Lifetime> for pgp::types::Duration {
+    fn from(value: Lifetime) -> Self {
+        value.0
+    }
+}
+
+impl Lifetime {
+    /// Returns the number of seconds.
+    pub fn as_secs(self) -> u32 {
+        self.0.as_secs()
+    }
+
+    /// Creates a new [`Lifetime`] from seconds.
+    pub fn from_secs(secs: u32) -> Self {
+        Self(pgp::types::Duration::from_secs(secs))
+    }
+}
+
 /// An optional Unix timestamp used for validating time against in `OpenPGP` operations.
 ///
 /// If unset, time-based checks are disabled.
@@ -291,6 +319,16 @@ pub enum GenericKeyIdentifier {
     Wildcard,
 }
 
+impl GenericKeyIdentifier {
+    pub fn key_id(&self) -> Option<KeyId> {
+        match self {
+            Self::KeyId(key_id) | Self::Both(key_id, _) => Some(*key_id),
+            Self::Fingerprint(fingerprint) => fingerprint.key_id(),
+            Self::Wildcard => Some(KeyId::new([0_u8; 8])),
+        }
+    }
+}
+
 impl PartialEq for GenericKeyIdentifier {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
@@ -330,19 +368,19 @@ impl Display for PrettyKeyFlags {
         write!(f, "Flags set:")?;
 
         if self.0.authentication() {
-            write!(f, " authentication",)?;
+            write!(f, " authentication")?;
         }
         if self.0.sign() {
-            write!(f, " sign",)?;
+            write!(f, " sign")?;
         }
         if self.0.certify() {
-            write!(f, " certify",)?;
+            write!(f, " certify")?;
         }
         if self.0.encrypt_comms() {
-            write!(f, " encrypt-communications",)?;
+            write!(f, " encrypt-communications")?;
         }
         if self.0.encrypt_storage() {
-            write!(f, " encrypt-storage",)?;
+            write!(f, " encrypt-storage")?;
         }
         Ok(())
     }
@@ -467,12 +505,12 @@ impl FingerprintExt for Fingerprint {
                 let key_id_bytes: Option<[u8; 8]> = fp[12..].try_into().ok();
                 key_id_bytes.map(KeyId::new)
             }
-            Fingerprint::V6(fp) => {
+            Fingerprint::V5(fp) | Fingerprint::V6(fp) => {
                 // first 64 bits of fingerprint
                 let key_id_bytes: Option<[u8; 8]> = fp[..8].try_into().ok();
                 key_id_bytes.map(KeyId::new)
             }
-            _ => None,
+            Fingerprint::V2(_) | Fingerprint::V3(_) | Fingerprint::Unknown(_) => None,
         }
     }
 }

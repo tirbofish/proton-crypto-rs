@@ -35,6 +35,16 @@ pub use keys::*;
 mod armor;
 pub use armor::*;
 
+/// The clock skew for verification in seconds.
+///
+/// This is the maximum amount of time that a signature can be verified in the future.
+pub const CLOCK_SKEW_VERIFICATION: u64 = 60;
+
+/// The clock skew for key generation in seconds.
+///
+/// A key generation time is `CLOCK_SKEW_KEY_GENERATION` seconds in the past.
+pub const CLOCK_SKEW_KEY_GENERATION: u64 = 60;
+
 /// `PGPProvider` provides access to an `OpenPGP` implementation.
 pub trait PGPProvider: Send + Sync + 'static + Clone {
     /// An `OpenPGP` session key type.
@@ -584,22 +594,45 @@ pub struct UnixTimestamp(pub u64);
 
 impl UnixTimestamp {
     /// Creates new unix timestamp.
+    ///
+    /// `unix_time` is the number of seconds since the Unix epoch (1970-01-01 00:00:00 UTC).
     pub fn new(unix_time: u64) -> Self {
         Self(unix_time)
     }
-    /// Creates unix timestamp with the zero value.
-    ///
-    /// If a zero value is supplied to the API expirations checks are skipped.
+    /// Creates unix timestamp with the zero value (1970-01-01 00:00:00 UTC).
     pub fn zero() -> Self {
         Self(0)
     }
-    /// Indicates if the timestamp is zero.
+
     pub fn is_zero(&self) -> bool {
         self.0 == 0
     }
-    /// Indicates if the timestamp is zero.
+
     pub fn value(&self) -> u64 {
         self.0
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl TryFrom<jiff::Timestamp> for UnixTimestamp {
+    type Error = std::num::TryFromIntError;
+
+    /// Converts a `jiff::Timestamp` into a `UnixTimestamp`, truncating sub-second precision.
+    fn try_from(value: jiff::Timestamp) -> Result<Self, Self::Error> {
+        u64::try_from(value.as_second()).map(Self)
+    }
+}
+
+#[cfg(feature = "jiff")]
+impl TryFrom<UnixTimestamp> for jiff::Timestamp {
+    type Error = jiff::Error;
+
+    /// Converts a `UnixTimestamp` into a `jiff::Timestamp`.
+    ///
+    /// Fails if the timestamp lies beyond the maximum instant `jiff::Timestamp` supports.
+    fn try_from(value: UnixTimestamp) -> Result<Self, Self::Error> {
+        // Saturate on overflow, `from_second` reports the out-of-range error.
+        jiff::Timestamp::from_second(i64::try_from(value.0).unwrap_or(i64::MAX))
     }
 }
 
@@ -684,5 +717,52 @@ impl DetachedMessageData {
                 "no detached packets",
             )))?;
         Ok((kp, ds))
+    }
+}
+
+#[cfg(all(test, feature = "jiff"))]
+mod jiff_tests {
+    use super::UnixTimestamp;
+    use jiff::Timestamp;
+
+    const JIFF_MAX_SECOND: u64 = 253_402_207_200;
+
+    fn timestamp(rfc3339: &str) -> Timestamp {
+        rfc3339.parse().unwrap()
+    }
+
+    #[test]
+    fn test_jiff_round_trip() {
+        for (unix_time, rfc3339) in [
+            (0, "1970-01-01T00:00:00Z"),
+            (1_756_000_000, "2025-08-24T01:46:40Z"),
+            (JIFF_MAX_SECOND, "9999-12-30T22:00:00Z"),
+        ] {
+            let unix = UnixTimestamp::new(unix_time);
+            assert_eq!(Timestamp::try_from(unix).unwrap(), timestamp(rfc3339));
+            assert_eq!(UnixTimestamp::try_from(timestamp(rfc3339)).unwrap(), unix);
+        }
+    }
+
+    #[test]
+    fn test_jiff_conversion_edge_cases() {
+        // Sub-second precision is truncated towards zero, i.e., sub-second timestamps
+        // before the epoch convert to zero instead of failing.
+        for (rfc3339, expected) in [
+            ("1969-12-31T23:59:59.999Z", 0),
+            ("1970-01-01T00:00:00.999Z", 0),
+            ("2025-08-24T01:46:40.999Z", 1_756_000_000),
+        ] {
+            let unix = UnixTimestamp::try_from(timestamp(rfc3339)).unwrap();
+            assert_eq!(unix, UnixTimestamp::new(expected));
+        }
+
+        for rfc3339 in ["1969-12-31T23:59:59Z", "1901-12-13T20:45:52Z"] {
+            assert!(UnixTimestamp::try_from(timestamp(rfc3339)).is_err());
+        }
+
+        for unix_time in [JIFF_MAX_SECOND + 1, 1 << 63, u64::MAX] {
+            assert!(Timestamp::try_from(UnixTimestamp::new(unix_time)).is_err());
+        }
     }
 }

@@ -2,9 +2,9 @@ use std::sync::LazyLock;
 
 use pgp::crypto::{hash::HashAlgorithm, sym::SymmetricKeyAlgorithm};
 use proton_rpgp::{
-    AccessKeyInfo, AsPublicKeyRef, DataEncoding, Encryptor, Error, KeyGenerationType, KeyGenerator,
-    KeyLock, KeyOperationError, LockedPrivateKey, PrivateKey, Profile, ProfileSettings, PublicKey,
-    SessionKey, StringToKeyOption, UnixTime,
+    armor::unarmor, AccessKeyInfo, AsPublicKeyRef, DataEncoding, Encryptor, Error,
+    KeyGenerationType, KeyGenerator, KeyLock, KeyOperationError, LockedPrivateKey, PrivateKey,
+    Profile, ProfileSettings, PublicKey, SessionKey, StringToKeyOption, UnixTime,
 };
 
 pub const TEST_PRIVATE_KEY: &str = include_str!("../test-data/keys/locked_private_key_v6.asc");
@@ -432,4 +432,86 @@ fn unlock_dsa_key_succeeds_but_fails_on_operation() {
         .encrypt_raw(b"hello world", DataEncoding::Armored);
 
     assert!(enc_result.is_err()); // Encryption should fail because DSA is not supported for operations. (binding signature is invalid)
+}
+
+const TEST_KEY_SECP256K1: &str =
+    include_str!("../test-data/keys/locked_private_key_v4_secp256k1.asc");
+
+#[test]
+#[allow(clippy::missing_panics_doc)]
+pub fn import_secp256k1_key_is_unsupported() {
+    let result = PrivateKey::import(
+        TEST_KEY_SECP256K1.as_bytes(),
+        b"password",
+        DataEncoding::Armored,
+    );
+
+    assert!(matches!(
+        result,
+        Err(Error::KeyOperation(KeyOperationError::Decode(_)))
+    ));
+}
+
+#[test]
+#[allow(clippy::missing_panics_doc)]
+pub fn multi_key_import_fails() {
+    const MULTI_PUBLIC_KEY_ARMORED: &str =
+        include_str!("../test-data/keys/public_key_v4_v6_multi.asc");
+    const MULTI_PRIVATE_KEY_ARMORED: &str =
+        include_str!("../test-data/keys/private_key_v4_v6_multi.asc");
+
+    let multi_public_key_unarmored =
+        unarmor(MULTI_PUBLIC_KEY_ARMORED).expect("Failed to unarmor public keys");
+    let multi_private_key_unarmored =
+        unarmor(MULTI_PRIVATE_KEY_ARMORED).expect("Failed to unarmor private keys");
+
+    let results = [
+        PublicKey::import_single_enforce(
+            MULTI_PUBLIC_KEY_ARMORED.as_bytes(),
+            DataEncoding::Armored,
+        )
+        .map(|_| ()),
+        PublicKey::import_single_enforce(&multi_public_key_unarmored, DataEncoding::Unarmored)
+            .map(|_| ()),
+        LockedPrivateKey::import_single_enforce(
+            MULTI_PRIVATE_KEY_ARMORED.as_bytes(),
+            DataEncoding::Armored,
+        )
+        .map(|_| ()),
+        LockedPrivateKey::import_single_enforce(
+            &multi_private_key_unarmored,
+            DataEncoding::Unarmored,
+        )
+        .map(|_| ()),
+        // The check must also apply when the encoding is auto-detected.
+        PublicKey::import_single_enforce(MULTI_PUBLIC_KEY_ARMORED.as_bytes(), DataEncoding::Auto)
+            .map(|_| ()),
+        PublicKey::import_single_enforce(&multi_public_key_unarmored, DataEncoding::Auto)
+            .map(|_| ()),
+        PrivateKey::import_single_enforce(
+            MULTI_PRIVATE_KEY_ARMORED.as_bytes(),
+            b"",
+            DataEncoding::Auto,
+        )
+        .map(|_| ()),
+        PrivateKey::import_unlocked_single_enforce(
+            &multi_private_key_unarmored,
+            DataEncoding::Auto,
+        )
+        .map(|_| ()),
+    ];
+    for result in results {
+        assert!(
+            matches!(
+                result,
+                Err(Error::KeyOperation(KeyOperationError::DecodeMultipleKeys))
+            ),
+            "Expected DecodeMultipleKeys, got {result:?}"
+        );
+    }
+
+    // Importing many keys explicitly must still be possible.
+    let many = LockedPrivateKey::import_many(&multi_private_key_unarmored)
+        .expect("Failed to import many keys");
+    assert_eq!(many.len(), 2);
 }

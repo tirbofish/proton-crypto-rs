@@ -30,6 +30,9 @@ pub(crate) use selection::*;
 pub(crate) mod preferences;
 pub use preferences::EncryptionMechanism;
 
+pub(crate) mod import;
+pub(crate) use import::*;
+
 mod generation;
 pub use generation::*;
 
@@ -116,6 +119,23 @@ impl PublicKey {
         })
     }
 
+    /// Import an `OpenPGP` public key from a byte slice.
+    ///
+    /// Enforces that exactly one key is present in the input.
+    pub fn import_single_enforce(key_data: &[u8], encoding: DataEncoding) -> crate::Result<Self> {
+        let resolved_encoding = encoding.resolve_for_read(key_data);
+        let signed_public_key = match resolved_encoding {
+            ResolvedDataEncoding::Armored => SignedPublicKey::from_armor_single_enforce(key_data)?,
+            ResolvedDataEncoding::Unarmored => {
+                SignedPublicKey::from_bytes_single_enforce(key_data)?
+            }
+        };
+
+        Ok(Self {
+            inner: signed_public_key,
+        })
+    }
+
     /// Export the public key.
     pub fn export(&self, encoding: DataEncoding) -> crate::Result<Vec<u8>> {
         match encoding.resolve_for_write() {
@@ -137,6 +157,33 @@ impl PublicKey {
                 Ok(buf)
             }
         }
+    }
+
+    /// Certifies the user-id of this key with an external `certifier` key.
+    ///
+    /// For example: Proton CA
+    ///
+    /// Returns a builder to configure the optional certification parameters,
+    /// such as the expected email of the user-id, the certification date, the
+    /// lifetime after which the certification expires, and the profile to use.
+    pub fn certify_with_external<'a>(
+        &self,
+        certifier: &'a PrivateKey,
+    ) -> ExternalCertifier<'a, Self> {
+        ExternalCertifier::new(self.clone(), certifier)
+    }
+
+    /// Verifies that the user-id of this key was certified by an external `certifier` key.
+    ///
+    /// For example: Proton CA
+    ///
+    /// Returns a builder to configure the optional verification parameters, such as the
+    /// expected email of the user-id, the verification date, and the profile to use.
+    pub fn verify_with_external<'a>(
+        &self,
+        certifier: &'a impl AsPublicKeyRef,
+    ) -> ExternalVerifier<'a, Self> {
+        ExternalVerifier::new(self.clone(), certifier)
     }
 }
 
@@ -284,6 +331,21 @@ impl LockedPrivateKey {
         Ok(Self::new(secret))
     }
 
+    /// Import a locked `OpenPGP` secret key from a byte slice.
+    ///
+    /// Does not check if the key is locked or not.
+    /// Enforces that exactly one key is encoded in the input.
+    pub fn import_single_enforce(key_data: &[u8], encoding: DataEncoding) -> crate::Result<Self> {
+        let resolved_encoding = encoding.resolve_for_read(key_data);
+        let secret = match resolved_encoding {
+            ResolvedDataEncoding::Armored => SignedSecretKey::from_armor_single_enforce(key_data)?,
+            ResolvedDataEncoding::Unarmored => {
+                SignedSecretKey::from_bytes_single_enforce(key_data)?
+            }
+        };
+        Ok(Self::new(secret))
+    }
+
     /// Allows to import multiple locked secret keys from a single binary blob.
     pub fn import_many(key_data: &[u8]) -> crate::Result<Vec<Self>> {
         let mut locked_keys = Vec::new();
@@ -360,6 +422,18 @@ impl PrivateKey {
         locked.unlock(password, KeyLock::Expected)
     }
 
+    /// Import and unlock `OpenPGP` secret key from a byte slice.
+    ///
+    /// Enforces that exactly one key is present in the input.
+    pub fn import_single_enforce(
+        key_data: &[u8],
+        password: &[u8],
+        encoding: DataEncoding,
+    ) -> crate::Result<PrivateKey> {
+        let locked = LockedPrivateKey::import_single_enforce(key_data, encoding)?;
+        locked.unlock(password, KeyLock::Expected)
+    }
+
     /// Imports multiple unlocked `OpenPGP` secret keys from a single binary blob.
     pub fn import_unlocked_many(key_data: &[u8]) -> crate::Result<Vec<PrivateKey>> {
         let locked_keys = LockedPrivateKey::import_many(key_data)?;
@@ -377,6 +451,21 @@ impl PrivateKey {
     /// Returns an [`KeyOperationError::Locked`] if the imported key is locked.
     pub fn import_unlocked(key_data: &[u8], encoding: DataEncoding) -> crate::Result<PrivateKey> {
         let locked = LockedPrivateKey::import(key_data, encoding)?;
+        if locked.is_locked() {
+            return Err(KeyOperationError::Locked.into());
+        }
+        locked.unlock("".as_bytes(), KeyLock::NotRequired)
+    }
+
+    /// Import an unlocked `OpenPGP` secret key from a byte slice.
+    ///
+    /// Returns an [`KeyOperationError::Locked`] if the imported key is locked.
+    /// Enforces that exactly one key is present in the input.
+    pub fn import_unlocked_single_enforce(
+        key_data: &[u8],
+        encoding: DataEncoding,
+    ) -> crate::Result<PrivateKey> {
+        let locked = LockedPrivateKey::import_single_enforce(key_data, encoding)?;
         if locked.is_locked() {
             return Err(KeyOperationError::Locked.into());
         }
@@ -471,6 +560,33 @@ impl PrivateKey {
     /// The returned modifier allows to motify a copy of the secret key.
     pub fn modify_with_profile(&self, profile: &Profile) -> KeyModifier {
         KeyModifier::new_with_profile(self, profile)
+    }
+
+    /// Certifies the user-id of this key with an external `certifier` key.
+    ///
+    /// For example: Proton CA
+    ///
+    /// Returns a builder to configure the optional certification parameters,
+    /// such as the expected email of the user-id, the certification date, the
+    /// lifetime after which the certification expires, and the profile to use.
+    pub fn certify_with_external<'a>(
+        &self,
+        certifier: &'a PrivateKey,
+    ) -> ExternalCertifier<'a, Self> {
+        ExternalCertifier::new(self.clone(), certifier)
+    }
+
+    /// Verifies that the user-id of this key was certified by an external `certifier` key.
+    ///
+    /// For example: Proton CA
+    ///
+    /// Returns a builder to configure the optional verification parameters, such as the
+    /// expected email of the user-id, the verification date, and the profile to use.
+    pub fn verify_with_external<'a>(
+        &self,
+        certifier: &'a impl AsPublicKeyRef,
+    ) -> ExternalVerifier<'a, Self> {
+        ExternalVerifier::new(self.clone(), certifier)
     }
 
     /// Checks if the secret key is a `Proton` forwarding key.

@@ -1,6 +1,6 @@
 [package]
 name = "proton-crypto"
-version = "0.13.2"
+version = "0.14.0"
 edition.workspace = true
 
 license-file = "LICENSE"
@@ -9,8 +9,6 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
-gopenpgp-sys = { workspace = true, optional = true }
-proton-rpgp = { workspace = true, optional = true }
 proton-srp = { workspace = true }
 thiserror = { workspace = true }
 serde = { version="1", features = ["derive"]}
@@ -19,7 +17,12 @@ parking_lot = "0.12"
 subtle = "2.5.0"
 rand = { workspace = true }
 web-time = { workspace = true }
+
+# Optional
+gopenpgp-sys = { workspace = true, optional = true }
+proton-rpgp = { workspace = true, optional = true }
 facet = { workspace = true, optional = true }
+jiff = { version="0.2" , default-features = false, features = ["std"], optional = true }
 
 [target.'cfg(forcego)'.dependencies]
 gopenpgp-sys = { workspace = true }
@@ -33,6 +36,8 @@ rustpgp = ["dep:proton-rpgp"]
 gopgp = ["dep:gopenpgp-sys"]
 multi_be = ["rustpgp", "gopgp"]
 facet = ["dep:facet"]
+# Add Jiff conversion traits to UnixTimestamp
+jiff = ["dep:jiff"]
 
 [lints]
 workspace = true

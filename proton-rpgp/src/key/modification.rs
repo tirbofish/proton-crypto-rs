@@ -1,13 +1,15 @@
 use pgp::{
     composed::SignedSecretKey,
-    packet::{self, KeyFlags, PubKeyInner},
-    types::KeyDetails,
+    packet::{self, KeyFlags, PubKeyInner, SignatureType, UserId},
+    types::{KeyDetails, SignedUser, Tag},
 };
 
 use crate::{
-    convert_user_ids, primary_key_flags, CertificationSelectionExt, CheckUnixTime,
-    KeyGenerationProfileBuilder, KeyModificationError, KeyUserId, PacketPublicSubkeyExt,
-    PrivateKey, PrivateKeySelectionExt, Profile, PublicKeySelectionExt, UnixTime, DEFAULT_PROFILE,
+    check_signature_details, convert_user_ids, primary_key_flags, AsPublicKeyRef,
+    CertificationSelectionExt, CheckUnixTime, KeyCertificationError, KeyGenerationProfileBuilder,
+    KeyModificationError, KeyUserId, Lifetime, PacketPublicSubkeyExt, PacketUserIdExt, PrivateKey,
+    PrivateKeySelectionExt, Profile, PublicKey, PublicKeyExt, PublicKeySelectionExt,
+    SignatureError, SignatureExt, SignatureUsage, UnixTime, DEFAULT_PROFILE,
 };
 
 pub struct KeyModifier {
@@ -272,6 +274,337 @@ impl KeyModifier {
 
         Ok(self)
     }
+}
+
+/// A builder to certify the single user-id of a key with an external `certifier` key.
+///
+/// For example: Proton CA
+pub struct ExternalCertifier<'a, K> {
+    /// The key whose user-id is being certified.
+    key: K,
+
+    /// The key used to issue the certification.
+    certifier: &'a PrivateKey,
+
+    /// The expected email address of the certified user-id.
+    check_email: Option<String>,
+
+    /// The date of the certification.
+    date: UnixTime,
+
+    /// The lifetime of the certification, after which it expires.
+    lifetime: Option<Lifetime>,
+
+    /// The profile to use for the certification.
+    profile: Profile,
+}
+
+impl<'a, K> ExternalCertifier<'a, K> {
+    pub(crate) fn new(key: K, certifier: &'a PrivateKey) -> Self {
+        Self {
+            key,
+            certifier,
+            check_email: None,
+            date: UnixTime::now().unwrap_or_default(),
+            lifetime: None,
+            profile: DEFAULT_PROFILE.clone(),
+        }
+    }
+
+    /// Enforce that the certified user-id contains the given email address.
+    pub fn with_email(mut self, email: &str) -> Self {
+        self.check_email = Some(email.to_string());
+        self
+    }
+
+    /// Set the date of the certification.
+    pub fn with_date(mut self, date: UnixTime) -> Self {
+        self.date = date;
+        self
+    }
+
+    /// Set the lifetime of the certification, after which it expires.
+    ///
+    /// If not set, the certification does not expire.
+    pub fn with_lifetime(mut self, lifetime: Lifetime) -> Self {
+        self.lifetime = Some(lifetime);
+        self
+    }
+
+    /// Set the profile to use for the certification.
+    pub fn with_profile(mut self, profile: &Profile) -> Self {
+        self.profile = profile.clone();
+        self
+    }
+}
+
+impl ExternalCertifier<'_, PublicKey> {
+    /// Apply the certification according to the configuration.
+    pub fn apply(self) -> Result<PublicKey, KeyCertificationError> {
+        let certified_user_ids = certify_user_id_with_external(
+            &self.key.inner.primary_key,
+            self.certifier,
+            &self.key.inner.details.users,
+            self.check_email.as_deref(),
+            self.date,
+            self.lifetime,
+            &self.profile,
+        )?;
+        let mut key = self.key;
+        key.inner.details.users = certified_user_ids;
+        Ok(key)
+    }
+}
+
+impl ExternalCertifier<'_, PrivateKey> {
+    /// Apply the certification according to the configuration.
+    pub fn apply(self) -> Result<PrivateKey, KeyCertificationError> {
+        let certified_user_ids = certify_user_id_with_external(
+            self.key.secret.primary_key.public_key(),
+            self.certifier,
+            &self.key.secret.details.users,
+            self.check_email.as_deref(),
+            self.date,
+            self.lifetime,
+            &self.profile,
+        )?;
+        let mut secret = self.key.secret;
+        secret.details.users = certified_user_ids;
+        Ok(PrivateKey::new(secret))
+    }
+}
+
+/// A builder to verify that the single user-id of a key was certified by an external
+/// `certifier` key.
+pub struct ExternalVerifier<'a, K> {
+    /// The key whose user-id certification is being verified.
+    key: K,
+
+    /// The primary key of the key that is expected to have issued the certification.
+    certifier_primary_key: &'a PublicKey,
+
+    /// The expected email address of the certified user-id.
+    check_email: Option<String>,
+
+    /// The date at which the certification must be valid.
+    date: UnixTime,
+
+    /// The profile to use for the verification.
+    profile: Profile,
+}
+
+impl<'a, K> ExternalVerifier<'a, K> {
+    pub(crate) fn new(key: K, certifier: &'a impl AsPublicKeyRef) -> Self {
+        Self {
+            key,
+            certifier_primary_key: certifier.as_public_key(),
+            check_email: None,
+            date: UnixTime::now().unwrap_or_default(),
+            profile: DEFAULT_PROFILE.clone(),
+        }
+    }
+
+    /// Enforce that the certified user-id contains the given email address.
+    pub fn with_email(mut self, email: &str) -> Self {
+        self.check_email = Some(email.to_string());
+        self
+    }
+
+    /// Set the date at which the certification must be valid.
+    pub fn with_date(mut self, date: UnixTime) -> Self {
+        self.date = date;
+        self
+    }
+
+    /// Set the profile to use for the verification.
+    pub fn with_profile(mut self, profile: &Profile) -> Self {
+        self.profile = profile.clone();
+        self
+    }
+}
+
+impl ExternalVerifier<'_, PublicKey> {
+    /// Verifies the certification according to the configuration.
+    pub fn verify(self) -> Result<(), KeyCertificationError> {
+        verify_user_id_with_external(
+            &self.key.inner.primary_key,
+            self.certifier_primary_key,
+            &self.key.inner.details.users,
+            self.check_email.as_deref(),
+            self.date,
+            &self.profile,
+        )
+    }
+}
+
+impl ExternalVerifier<'_, PrivateKey> {
+    /// Verifies the certification according to the configuration.
+    pub fn verify(self) -> Result<(), KeyCertificationError> {
+        verify_user_id_with_external(
+            self.key.secret.primary_key.public_key(),
+            self.certifier_primary_key,
+            &self.key.secret.details.users,
+            self.check_email.as_deref(),
+            self.date,
+            &self.profile,
+        )
+    }
+}
+
+/// Verifies that the single user-id of a key carries a valid certification issued by the
+/// `certifier` key, that is not expired at `date`.
+fn verify_user_id_with_external(
+    certified_primary_key: &packet::PublicKey,
+    certifier: &PublicKey,
+    user_ids: &[SignedUser],
+    check_email: Option<&str>,
+    date: UnixTime,
+    profile: &Profile,
+) -> Result<(), KeyCertificationError> {
+    // Enforce that the key has a single user-id that matches the email.
+    if user_ids.len() > 1 {
+        return Err(KeyCertificationError::TooManyUserIds);
+    }
+    let Some(user) = user_ids.first() else {
+        return Err(KeyCertificationError::NoUserId);
+    };
+    check_user_id_email(&user.id, check_email)?;
+
+    // Time checks are disabled to also allow verifying expired keys.
+    user.check_validity(certified_primary_key, CheckUnixTime::disable(), profile)
+        .map_err(KeyCertificationError::UserIdSelfCertification)?;
+
+    let verificaiton_keys = certifier
+        .as_signed_public_key()
+        .verification_keys(
+            date.into(),
+            Vec::default(),
+            SignatureUsage::Certify,
+            profile,
+        )
+        .map_err(KeyCertificationError::VerificationKeySelection)?;
+
+    let mut failures: Vec<SignatureError> = Vec::new();
+    for signature in user
+        .signatures
+        .iter()
+        .filter(|sig| sig.is_certification() && !sig.is_revocation())
+    {
+        let sig_identifier = signature.issuer_generic_identifier();
+
+        let matching_keys = verificaiton_keys.iter().filter(|key| {
+            sig_identifier
+                .iter()
+                .any(|identifier| identifier == &key.public_key.generic_identifier())
+        });
+
+        for verification_key in matching_keys {
+            if let Err(err) = signature.verify_third_party_certification(
+                certified_primary_key,
+                &verification_key.public_key,
+                Tag::UserId,
+                &user.id,
+            ) {
+                failures.push(SignatureError::Verification(err));
+                continue;
+            }
+
+            match check_signature_details(signature, CheckUnixTime::enable(date), profile) {
+                Ok(()) => return Ok(()),
+                Err(err) => failures.push(err),
+            }
+        }
+    }
+
+    Err(KeyCertificationError::NoValidCertification(failures.into()))
+}
+
+/// Certifies the single user-id of a key with an external `certifier` key.
+///
+/// If a `lifetime` in seconds is given, the certification expires that many
+/// seconds after `date`.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn certify_user_id_with_external(
+    certified_primary_key: &packet::PublicKey,
+    certifier: &PrivateKey,
+    user_ids: &[SignedUser],
+    check_email: Option<&str>,
+    date: UnixTime,
+    lifetime: Option<Lifetime>,
+    profile: &Profile,
+) -> Result<Vec<SignedUser>, KeyCertificationError> {
+    // Enforce that the key has a single user-id that matches the email.
+    if user_ids.len() > 1 {
+        return Err(KeyCertificationError::TooManyUserIds);
+    }
+    let Some(user) = user_ids.first() else {
+        return Err(KeyCertificationError::NoUserId);
+    };
+    check_user_id_email(&user.id, check_email)?;
+
+    // Time checks are disabled to also allow certifying expired keys.
+    user.check_validity(certified_primary_key, CheckUnixTime::disable(), profile)
+        .map_err(KeyCertificationError::UserIdSelfCertification)?;
+
+    let certifier_primary_key = certifier.secret.primary_key.public_key();
+    let certification_key = certifier
+        .secret
+        .signing_key(
+            date.into(),
+            Some(certifier_primary_key.legacy_key_id()),
+            SignatureUsage::Certify,
+            profile,
+        )
+        .map_err(KeyCertificationError::CertificationKeySelection)?;
+    let (certifier_user, _) = certifier
+        .secret
+        .select_user_id_with_certification(CheckUnixTime::disable(), profile)
+        .map_err(KeyCertificationError::CertifierUserId)?;
+
+    let certification = user.id.sign_third_party_with(
+        &certification_key.private_key,
+        certified_primary_key,
+        Some(&certifier_user.id),
+        date,
+        profile.key_hash_algorithm(),
+        lifetime,
+        profile.rng(),
+        profile,
+    )?;
+
+    // Replace existing generic certifications from the same certifier.
+    let mut certified_user = user.clone();
+    certified_user.signatures.retain(|signature| {
+        signature.typ() != Some(SignatureType::CertGeneric)
+            || !signature.is_issued_by(certifier_primary_key)
+    });
+    certified_user.signatures.push(certification);
+
+    Ok(vec![certified_user])
+}
+
+/// Checks that the user-id contains the given email address.
+fn check_user_id_email(
+    user_id: &UserId,
+    check_email: Option<&str>,
+) -> Result<(), KeyCertificationError> {
+    let Some(email) = check_email else {
+        return Ok(());
+    };
+    let user_id_string = user_id
+        .as_str()
+        .ok_or(KeyCertificationError::InvalidUserId)?;
+    if extract_email(user_id_string) != Some(email) {
+        return Err(KeyCertificationError::EmailMismatch(email.to_owned()));
+    }
+    Ok(())
+}
+
+/// Extracts the email address of a user-id of the form `name (comment) <email>`.
+fn extract_email(user_id: &str) -> Option<&str> {
+    let (_, remainder) = user_id.split_once('<')?;
+    let (email, _) = remainder.split_once('>')?;
+    Some(email)
 }
 
 #[cfg(test)]

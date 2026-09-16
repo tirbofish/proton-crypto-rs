@@ -96,8 +96,7 @@ pub trait CertificationSelectionExt {
         let self_signature_creation_time = if let Some(self_signature) = self_signature {
             self_signature
                 .unix_created_at()
-                .map(CheckUnixTime::from)
-                .unwrap_or(CheckUnixTime::disable())
+                .map_or(CheckUnixTime::disable(), CheckUnixTime::from)
         } else {
             CheckUnixTime::disable()
         };

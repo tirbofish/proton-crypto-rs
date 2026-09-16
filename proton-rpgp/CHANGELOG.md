@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - 2026-00-00
 
+## [0.6.0] - 2026-09-15
+
+### Added
+
+- `certify_with_external`/`verify_with_external` on `PublicKey`/`PrivateKey`, with `ExternalCertifier`/`ExternalVerifier` builders, to certify a key with an external (e.g. Proton CA) key and verify existing certifications, including certification expiration.
+- `GenericKeyIdentifier::key_id` to derive the key ID from a generic key identifier.
+- `KeyGenerator::generate_with_rng` to generate a key with a custom CSPRNG.
+- `import_single_enforce`/`import_unlocked_single_enforce` on `PublicKey`, `LockedPrivateKey`, and `PrivateKey` to import a key while rejecting inputs containing more than one key.
+
+### Changed
+
+- When decrypting with passphrases, prefer a PKESK-derived session key over an SKESK-derived one.
+
 ## [0.5.0] - 2026-07-02
 
 ### Added

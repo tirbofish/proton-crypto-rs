@@ -44,6 +44,7 @@ indexing_slicing = "warn"
 string_slice = "warn"
 
 # --- Overrides ---
+similar-names = { level = "allow", priority = 1 }
 return-self-not-must-use = { level = "allow", priority = 1 }
 must-use-candidate = { level = "allow", priority = 1 }
 missing-errors-doc = { level = "allow", priority = 1 }
@@ -60,23 +61,23 @@ thiserror = "1"
 zeroize = { version="1.8.0", features = ["zeroize_derive"]}
 serde = { version="1", features = ["derive"]}
 web-time = "1.1.0"
-facet = { version = "=0.44" }
+facet = { version = ">=0.44" }
 
 # --- Workspace crates ---
 [workspace.dependencies.gopenpgp-sys]
 path     = "gopenpgp-sys"
-version  = "0.3.7"
+version  = "0.3.8"
 registry = "proton"
 
 [workspace.dependencies.proton-crypto]
 path     = "proton-crypto"
-version  = "0.13.2"
+version  = "0.14.0"
 default-features = false
 registry = "proton"
 
 [workspace.dependencies.proton-crypto-account]
 path     = "proton-crypto-account"
-version  = "0.19.2"
+version  = "0.20.0"
 registry = "proton"
 
 [workspace.dependencies.proton-srp]
@@ -97,7 +98,7 @@ registry = "proton"
 
 [workspace.dependencies.proton-rpgp]
 path     = "proton-rpgp"
-version  = "0.5.0"
+version  = "0.6.0"
 registry = "proton"
 
 

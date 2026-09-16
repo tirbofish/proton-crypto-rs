@@ -94,6 +94,10 @@ fn main() {
     println!("cargo:rustc-link-search={}", lib_dir.to_str().unwrap());
     println!("cargo:rustc-link-lib={GO_LIB_NAME}");
     println!("cargo:rerun-if-changed=go");
+    println!("cargo:rerun-if-env-changed=GO");
+    println!("cargo:rerun-if-env-changed=GOPENPGP_ANDROID_NDK_MARKER");
+    println!("cargo:rerun-if-env-changed=GOPENPGP_CLANG_RESOURCE_INCLUDE");
+    println!("cargo:rerun-if-env-changed=GOPENPGP_LIBCLANG_PATH");
 
     let bindings_env = build_go_lib(&lib_path, &lib_dir, platform);
     generate_bindings_go_for_lib(&lib_dir, &bindings_env);
@@ -130,7 +134,7 @@ fn build_go_lib(
     lib_dir: &Path,
     platform: Platform,
 ) -> BindingEnvironmentArguments {
-    let mut command = Command::new("go");
+    let mut command = Command::new(std::env::var("GO").unwrap_or_else(|_| "go".to_string()));
     command
         .current_dir("go")
         .env("CGO_ENABLED", "1");
@@ -217,6 +221,115 @@ fn generate_bindings_go_for_lib(lib_dir: &Path, binding_args: &BindingEnvironmen
         .expect("Failed to write bindings to file");
 }
 
+fn android_host_prebuilt_os() -> &'static str {
+    if cfg!(target_os = "windows") {
+        "windows-x86_64"
+    } else if cfg!(target_os = "macos") {
+        "darwin-x86_64"
+    } else {
+        "linux-x86_64"
+    }
+}
+
+/// `GOPENPGP_ANDROID_NDK_MARKER`: path to `AndroidVersion.txt` under the NDK prebuilt tree.
+fn ndk_home_from_marker(marker: &str) -> Option<(PathBuf, String)> {
+    let mut marker = PathBuf::from(marker);
+    if !marker.is_file() {
+        return None;
+    }
+    marker.pop();
+    let host_os = marker.file_name()?.to_str()?.to_string();
+    let ndk_home = marker.parent()?.parent()?.parent()?.parent()?.to_path_buf();
+    Some((ndk_home, host_os))
+}
+
+fn resolve_android_ndk_home() -> (PathBuf, String) {
+    if let Ok(marker) = env::var("GOPENPGP_ANDROID_NDK_MARKER") {
+        match ndk_home_from_marker(&marker) {
+            Some((ndk_home, host_os)) if host_os == android_host_prebuilt_os() => {
+                return (ndk_home, host_os);
+            }
+            Some((_, host_os)) => {
+                eprintln!(
+                    "Warning: GOPENPGP_ANDROID_NDK_MARKER={marker} host prebuilt {host_os} does not match {}",
+                    android_host_prebuilt_os()
+                );
+            }
+            None => {
+                eprintln!(
+                    "Warning: GOPENPGP_ANDROID_NDK_MARKER={marker} is missing or not a valid NDK marker file"
+                );
+            }
+        }
+    }
+
+    let host_os = android_host_prebuilt_os().to_string();
+    let ndk_home = env::var("ANDROID_NDK_HOME")
+        .or_else(|_| env::var("NDK_HOME"))
+        .or_else(|_| env::var("ANDROID_NDK"))
+        .map(PathBuf::from)
+        .expect(
+            "None of the environment variables (ANDROID_NDK_HOME, NDK_HOME, ANDROID_NDK) are set",
+        );
+    (ndk_home, host_os)
+}
+
+/// `GOPENPGP_CLANG_RESOURCE_INCLUDE`: tree root containing an `include/` resource dir.
+fn clang_resource_include_from_env() -> Option<PathBuf> {
+    let root = PathBuf::from(env::var("GOPENPGP_CLANG_RESOURCE_INCLUDE").ok()?);
+    let include = root.join("include");
+    if include.join("stddef.h").is_file() {
+        return Some(include);
+    }
+    None
+}
+
+/// `GOPENPGP_LIBCLANG_PATH`: path to `libclang.so` (parent is passed to bindgen).
+fn libclang_dir_from_env(ndk_toolchain: &Path) -> Option<String> {
+    if let Ok(libclang) = env::var("GOPENPGP_LIBCLANG_PATH") {
+        let path = PathBuf::from(&libclang);
+        if path.is_file() {
+            if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+                return Some(parent.to_string_lossy().into_owned());
+            }
+            eprintln!(
+                "Warning: GOPENPGP_LIBCLANG_PATH={libclang} has no parent directory; ignoring"
+            );
+        } else {
+            eprintln!("Warning: GOPENPGP_LIBCLANG_PATH={libclang} is not a file; ignoring");
+        }
+    }
+
+    for lib_dir in ["lib", "lib64"] {
+        let dir = ndk_toolchain.join(lib_dir);
+        if dir.join("libclang.so").is_file() || dir.join("libclang.dylib").is_file() {
+            return Some(dir.to_string_lossy().into_owned());
+        }
+    }
+
+    None
+}
+
+fn android_bindgen_clang_args(
+    ndk_toolchain: &Path,
+    sys_root: &str,
+    ndk_toolchain_prefix: &str,
+    platform: &str,
+) -> Vec<String> {
+    let mut args = vec![
+        format!("--sysroot={sys_root}"),
+        format!("--target={ndk_toolchain_prefix}{platform}"),
+    ];
+    if let Some(resource_include) = clang_resource_include_from_env() {
+        args.push("-isystem".to_string());
+        args.push(resource_include.display().to_string());
+    }
+    let usr_include = ndk_toolchain.join("sysroot/usr/include");
+    args.push("-isystem".to_string());
+    args.push(usr_include.display().to_string());
+    args
+}
+
 fn prepare_go_lib_build_android(
     command: &mut Command,
     arch: CPUArch,
@@ -233,21 +346,7 @@ fn prepare_go_lib_build_android(
         30.to_string() // default use ndk api level 30.
     });
 
-    let ndk_home = env::var("ANDROID_NDK_HOME")
-        .or_else(|_| env::var("NDK_HOME"))
-        .or_else(|_| env::var("ANDROID_NDK"))
-        .expect(
-            "None of the environment variables (ANDROID_NDK_HOME, NDK_HOME, ANDROID_NDK) are set",
-        );
-
-    // Determine the prebuilt directory based on the host OS
-    let host_os = if cfg!(target_os = "windows") {
-        "windows-x86_64"
-    } else if cfg!(target_os = "macos") {
-        "darwin-x86_64"
-    } else {
-        "linux-x86_64"
-    };
+    let (ndk_home, host_os) = resolve_android_ndk_home();
 
     let (goarch, ndk_toolchain_prefix) = match arch {
         CPUArch::X86_64 => ("amd64", "x86_64-linux-android"),
@@ -264,11 +363,11 @@ fn prepare_go_lib_build_android(
         command.env("GOARM", "7");
     }
 
-    let ndk_toolchain = PathBuf::from(ndk_home)
+    let ndk_toolchain = ndk_home
         .join("toolchains")
         .join("llvm")
         .join("prebuilt")
-        .join(host_os);
+        .join(&host_os);
 
     // Set the appropriate CC environment variable
     let cc = ndk_toolchain
@@ -286,10 +385,15 @@ fn prepare_go_lib_build_android(
         .to_str()
         .expect("valid sysroot ndk path")
         .to_owned();
-    let sys_root_arg = format!("--sysroot={sys_root}");
+    let lib_clang_path = libclang_dir_from_env(&ndk_toolchain);
     BindingEnvironmentArguments {
-        lib_clang_path: None,
-        clang_args: vec![sys_root_arg],
+        lib_clang_path,
+        clang_args: android_bindgen_clang_args(
+            &ndk_toolchain,
+            &sys_root,
+            ndk_toolchain_prefix,
+            &platform,
+        ),
     }
 }
 

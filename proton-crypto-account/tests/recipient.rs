@@ -104,7 +104,6 @@ fn create_test_pinned_key<T: PGPProviderSync>(
         sign: Some(true),
         scheme: None,
         mime_type: Some(EmailMimeType::Html),
-        contact_signature_verified: true,
         signature_timestamp: None,
     }
 }
