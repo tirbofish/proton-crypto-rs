@@ -124,7 +124,9 @@ impl ForwardingKeyDetails {
 
 impl KeyDetails for ForwardingKeyDetails {
     fn version(&self) -> KeyVersion {
-        KeyVersion::V4
+        self.forwardee_fingerprint
+            .version()
+            .unwrap_or(KeyVersion::Other(u8::MAX))
     }
 
     fn legacy_key_id(&self) -> KeyId {
