@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - 2026-00-00
 
+## [0.7.0] - 2026-09-22
+
+### Added
+
+- `forward` module implementing `draft-wussler-openpgp-forwarding` write support: `PrivateKey::forwarding_key_generator`/`forwarding_key_generator_with_profile` to derive a forwardee key and its `ForwardingInstance`s from a forwarder key, `ForwardingPkesk`/`ForwardedPkesk` to transform a single PKESK, and `EncryptedMessage::proxy_forward` to transform all eligible PKESKs of a message.
+
 ## [0.6.0] - 2026-09-15
 
 ### Added
