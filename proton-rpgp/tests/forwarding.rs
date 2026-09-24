@@ -1097,3 +1097,89 @@ pub fn forwarding_message_proxy_forward_without_matching_instance_fails() {
         ))
     ));
 }
+
+#[test]
+#[allow(clippy::missing_panics_doc)]
+pub fn forwarding_recursive() {
+    let profile = Profile::default();
+    let alice = import_unlocked(TEST_KEY_V4);
+    let encrypted = encrypt_to(&alice, b"hello charly");
+
+    // Alice forwards to Bob.
+    let (bob, alice_to_bob) = alice
+        .forwarding_key_generator()
+        .with_user_id("bob", "bob@test.test")
+        .at_date(test_date())
+        .generate()
+        .expect("Generation of Bob's forwarding key should succeed");
+
+    // Bob forwards his forwarding key to Charly.
+    let (charly, bob_to_charly) = bob
+        .forwarding_key_generator()
+        .with_user_id("charly", "charly@test.test")
+        .at_date(test_date())
+        .generate()
+        .expect("Generation of Charly's forwarding key should succeed");
+
+    assert!(charly.is_forwarding_key(&profile));
+    assert_eq!(bob_to_charly.len(), 1);
+
+    // Charly's subkey must mix Alice's fingerprint into the KDF, since the
+    // original message was encrypted to Alice.
+    let EcdhPublicParams::Curve25519Legacy { ecdh_kdf_type, .. } = subkey_ecdh_params(&charly, 0)
+    else {
+        panic!("Forwardee subkey is not a legacy curve25519 key");
+    };
+    let Fingerprint::V4(alice_fingerprint) = subkey_fingerprint(&alice, 0) else {
+        panic!("Forwarder subkey is not a v4 key");
+    };
+    assert_eq!(
+        ecdh_kdf_type,
+        EcdhKdfType::Replaced {
+            replacement_fingerprint: alice_fingerprint
+        }
+    );
+
+    // The proxy transforms the message twice.
+    let to_bob = encrypted
+        .proxy_forward(&alice_to_bob)
+        .expect("Failed to forward to Bob");
+    let to_charly = to_bob
+        .clone()
+        .proxy_forward(&bob_to_charly)
+        .expect("Failed to forward to Charly");
+
+    // Bob can still read the message forwarded to him.
+    let decrypted = Decryptor::default()
+        .allow_forwarding_decryption(true)
+        .with_decryption_key(&bob)
+        .at_date(test_date().into())
+        .decrypt(
+            to_bob.to_bytes().expect("Failed to encode message"),
+            DataEncoding::Unarmored,
+        )
+        .expect("Bob failed to decrypt the forwarded message");
+    assert_eq!(decrypted.data, b"hello charly");
+
+    let decrypted = Decryptor::default()
+        .allow_forwarding_decryption(true)
+        .with_decryption_key(&charly)
+        .at_date(test_date().into())
+        .decrypt(
+            to_charly.to_bytes().expect("Failed to encode message"),
+            DataEncoding::Unarmored,
+        )
+        .expect("Charly failed to decrypt the recursively forwarded message");
+    assert_eq!(decrypted.data, b"hello charly");
+
+    // Charly cannot read the message that was only forwarded to Bob.
+    let result = Decryptor::default()
+        .allow_forwarding_decryption(true)
+        .with_decryption_key(&charly)
+        .at_date(test_date().into())
+        .decrypt(
+            to_bob.to_bytes().expect("Failed to encode message"),
+            DataEncoding::Unarmored,
+        );
+    assert!(result.is_err());
+}

@@ -123,104 +123,16 @@ pub trait PublicKeySelectionExt: CertificationSelectionExt {
         date: CheckUnixTime,
         profile: &Profile,
     ) -> Result<PublicComponentKey<'_>, KeyValidationError> {
-        // Disable time checks on the key if the profile enables encryption with future/expired keys.
-        let encryption_date = if profile.allow_encryption_with_future_or_expired_keys() {
-            CheckUnixTime::disable()
-        } else {
-            date
-        };
+        select_encryption_key(self, date, profile, CheckMode::Encryption)
+    }
 
-        // Check if the primary key is valid.
-        let primary_self_certification = self.check_primary_key(encryption_date, profile)?;
-
-        let primary_key = self.primary_key();
-        check_key_requirements(primary_key, profile).map_err(|err| {
-            KeyValidationError::PrimaryRequirement(primary_key.legacy_key_id(), err)
-        })?;
-
-        // Select the best subkey that is a valid encryption key.
-        let mut errors = Vec::new();
-        let mut subkey_selection = None;
-        let mut is_pq = false;
-        let mut max_time = None;
-
-        for sub_key in self.iter_subkeys() {
-            // Check subkey certifications.
-            let sub_key_self_certification =
-                match sub_key.check_validity(primary_key, encryption_date, profile) {
-                    Ok(self_certification) => self_certification,
-                    Err(err) => {
-                        errors.push(KeyValidationError::KeySelfCertification(err));
-                        continue;
-                    }
-                };
-
-            // Check if the subkey is a valid encryption key.
-            if let Err(err) = check_valid_encryption_key(
-                sub_key,
-                sub_key_self_certification,
-                profile,
-                CheckMode::Encryption,
-            ) {
-                errors.push(KeyValidationError::SubkeyRequirement(
-                    sub_key.legacy_key_id(),
-                    err,
-                ));
-                continue;
-            }
-
-            // Check key requirements enforced by the profile.
-            if let Err(err) = check_key_requirements(&sub_key.key, profile) {
-                errors.push(KeyValidationError::SubkeyRequirement(
-                    sub_key.legacy_key_id(),
-                    err,
-                ));
-                continue;
-            }
-
-            // Prefer newer subkeys.
-            let should_prefer = max_time.is_none_or(|current_max_time| {
-                sub_key.created_at() > current_max_time || (!is_pq && sub_key.algorithm().is_pqc())
-            });
-
-            if should_prefer {
-                subkey_selection = Some(PublicComponentKey::new(
-                    AnyPublicKey::PublicSubKey(&sub_key.key),
-                    primary_self_certification,
-                    sub_key_self_certification,
-                ));
-                max_time = Some(sub_key.created_at());
-                is_pq = sub_key.algorithm().is_pqc();
-            }
-        }
-
-        // If we have found a subkey that is a valid encryption key, return it.
-        if let Some(subkey_selection) = subkey_selection {
-            return Ok(subkey_selection);
-        }
-
-        // Check if the primary key is a valid encryption key.
-        if let Err(err) = check_valid_encryption_key(
-            primary_key,
-            primary_self_certification,
-            profile,
-            CheckMode::Encryption,
-        ) {
-            errors.push(KeyValidationError::PrimaryRequirement(
-                primary_key.legacy_key_id(),
-                err,
-            ));
-            return Err(KeyValidationError::NoEncryptionKey(
-                primary_key.legacy_key_id(),
-                errors.into(),
-            ));
-        }
-
-        Ok(PublicComponentKey::new(
-            AnyPublicKey::PrimaryPublicKey(primary_key),
-            primary_self_certification,
-            primary_self_certification,
-        ))
+    /// Selects a key that can be forwarded from the `OpenPGP` key.
+    fn forwardable_key(
+        &self,
+        date: CheckUnixTime,
+        profile: &Profile,
+    ) -> Result<PublicComponentKey<'_>, KeyValidationError> {
+        select_encryption_key(self, date, profile, CheckMode::Forwarding)
     }
 
     /// Selects all valid keys to verify a signature from `OpenPGP` key.
@@ -540,6 +452,106 @@ pub trait PrivateKeySelectionExt: PublicKeySelectionExt {
     }
 }
 
+/// Selects the best valid encryption key of `key` for the given `mode`.
+fn select_encryption_key<'a, T: PublicKeySelectionExt + ?Sized>(
+    key: &'a T,
+    date: CheckUnixTime,
+    profile: &Profile,
+    mode: CheckMode,
+) -> Result<PublicComponentKey<'a>, KeyValidationError> {
+    // Disable time checks on the key if the profile enables encryption with future/expired keys.
+    let encryption_date = if profile.allow_encryption_with_future_or_expired_keys() {
+        CheckUnixTime::disable()
+    } else {
+        date
+    };
+
+    // Check if the primary key is valid.
+    let primary_self_certification = key.check_primary_key(encryption_date, profile)?;
+
+    let primary_key = key.primary_key();
+    check_key_requirements(primary_key, profile)
+        .map_err(|err| KeyValidationError::PrimaryRequirement(primary_key.legacy_key_id(), err))?;
+
+    // Select the best subkey that is a valid encryption key.
+    let mut errors = Vec::new();
+    let mut subkey_selection = None;
+    let mut is_pq = false;
+    let mut max_time = None;
+
+    for sub_key in key.iter_subkeys() {
+        // Check subkey certifications.
+        let sub_key_self_certification =
+            match sub_key.check_validity(primary_key, encryption_date, profile) {
+                Ok(self_certification) => self_certification,
+                Err(err) => {
+                    errors.push(KeyValidationError::KeySelfCertification(err));
+                    continue;
+                }
+            };
+
+        // Check if the subkey is a valid encryption key.
+        if let Err(err) =
+            check_valid_encryption_key(sub_key, sub_key_self_certification, profile, mode)
+        {
+            errors.push(KeyValidationError::SubkeyRequirement(
+                sub_key.legacy_key_id(),
+                err,
+            ));
+            continue;
+        }
+
+        // Check key requirements enforced by the profile.
+        if let Err(err) = check_key_requirements(&sub_key.key, profile) {
+            errors.push(KeyValidationError::SubkeyRequirement(
+                sub_key.legacy_key_id(),
+                err,
+            ));
+            continue;
+        }
+
+        // Prefer newer subkeys.
+        let should_prefer = max_time.is_none_or(|current_max_time| {
+            sub_key.created_at() > current_max_time || (!is_pq && sub_key.algorithm().is_pqc())
+        });
+
+        if should_prefer {
+            subkey_selection = Some(PublicComponentKey::new(
+                AnyPublicKey::PublicSubKey(&sub_key.key),
+                primary_self_certification,
+                sub_key_self_certification,
+            ));
+            max_time = Some(sub_key.created_at());
+            is_pq = sub_key.algorithm().is_pqc();
+        }
+    }
+
+    // If we have found a subkey that is a valid encryption key, return it.
+    if let Some(subkey_selection) = subkey_selection {
+        return Ok(subkey_selection);
+    }
+
+    // Check if the primary key is a valid encryption key.
+    if let Err(err) =
+        check_valid_encryption_key(primary_key, primary_self_certification, profile, mode)
+    {
+        errors.push(KeyValidationError::PrimaryRequirement(
+            primary_key.legacy_key_id(),
+            err,
+        ));
+        return Err(KeyValidationError::NoEncryptionKey(
+            primary_key.legacy_key_id(),
+            errors.into(),
+        ));
+    }
+
+    Ok(PublicComponentKey::new(
+        AnyPublicKey::PrimaryPublicKey(primary_key),
+        primary_self_certification,
+        primary_self_certification,
+    ))
+}
+
 fn check_signing_key_flags(
     public_key: &impl VerifyingKey,
     self_certification: &packet::Signature,
@@ -557,13 +569,18 @@ fn check_signing_key_flags(
 #[derive(Debug, Clone, Copy)]
 enum CheckMode {
     Encryption,
-    Decryption { allow_forwarding_decryption: bool },
+    Decryption {
+        allow_forwarding_decryption: bool,
+    },
+    /// Selecting a key to derive a forwarding key from.
+    Forwarding,
 }
 
 impl CheckMode {
     fn allow_forwarding_keys(self) -> bool {
         match self {
             CheckMode::Encryption => false,
+            CheckMode::Forwarding => true,
             CheckMode::Decryption {
                 allow_forwarding_decryption,
             } => allow_forwarding_decryption,
@@ -781,11 +798,13 @@ fn check_key_requirements(
     }
 }
 
-/// Checks that `sub_key` is a valid encryption subkey of `primary_key`.
+/// Checks that `sub_key` is a valid subkey of `primary_key` to derive a
+/// forwarding key from.
 ///
+/// Accepts regular encryption subkeys as well as forwarding subkeys.
 /// Unlike [`PrivateKeySelectionExt::decryption_keys`] this checks a single,
 /// caller-chosen subkey and does not fall back to the primary key.
-pub(crate) fn check_subkey_for_encryption<K>(
+pub(crate) fn check_subkey_for_forwarding<K>(
     sub_key: &SignedSecretSubKey,
     primary_key: &K,
     encryption_date: CheckUnixTime,
@@ -804,7 +823,7 @@ where
         sub_key.public_key(),
         sub_key_self_certification,
         profile,
-        CheckMode::Encryption,
+        CheckMode::Forwarding,
     )
     .map_err(|err| KeyValidationError::SubkeyRequirement(sub_key.legacy_key_id(), err))?;
 

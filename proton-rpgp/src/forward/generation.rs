@@ -11,7 +11,7 @@ use pgp::{
 use rand::{CryptoRng, Rng};
 
 use crate::{
-    check_subkey_for_encryption, convert_user_ids, generate_primary_key, primary_key_flags,
+    check_subkey_for_forwarding, convert_user_ids, generate_primary_key, primary_key_flags,
     sign_subkey_with_params, AccessKeyInfo, ForwardingInstance, ForwardingKeyGenerationError,
     ForwardingKeyValidationError, KeyGenerationError, KeyUserId, PrivateKey, Profile,
     PublicKeySelectionExt, SubkeySpec, UnixTime, DEFAULT_PROFILE,
@@ -134,11 +134,11 @@ impl<'a> ForwardingKeyGenerator<'a> {
             None => UnixTime::now().ok_or(ForwardingKeyGenerationError::UnableToGetTime)?,
         };
 
-        // Check that the forwarder key can encrypt at all before generating
-        // anything, so a fully unusable key fails with a single clear error.
+        // Check that the forwarder key has a forwardable key at all before
+        // generating anything, so a fully unusable key fails with a single clear error.
         forwarder
             .as_signed_public_key()
-            .encryption_key(date.into(), profile)
+            .forwardable_key(date.into(), profile)
             .map_err(ForwardingKeyValidationError::KeyValidation)
             .map_err(ForwardingKeyGenerationError::KeyValidation)?;
 
@@ -253,10 +253,14 @@ fn forwarding_kdf_params<K>(
 where
     K: VerifyingKey + Serialize,
 {
-    check_subkey_for_encryption(forwarder_subkey, forwarder_primary, date.into(), profile)?;
+    check_subkey_for_forwarding(forwarder_subkey, forwarder_primary, date.into(), profile)?;
 
-    let PublicParams::ECDH(EcdhPublicParams::Curve25519Legacy { hash, alg_sym, .. }) =
-        forwarder_subkey.public_params()
+    let PublicParams::ECDH(EcdhPublicParams::Curve25519Legacy {
+        hash,
+        alg_sym,
+        ecdh_kdf_type,
+        ..
+    }) = forwarder_subkey.public_params()
     else {
         return Err(ForwardingKeyValidationError::SubKeyNoMatchingAlgorithm(
             forwarder_subkey.algorithm(),
@@ -264,10 +268,20 @@ where
     };
 
     let forwarder_fingerprint = forwarder_subkey.fingerprint();
-    let Fingerprint::V4(replacement_fingerprint) = forwarder_fingerprint else {
+    let Fingerprint::V4(forwarder_fingerprint_bytes) = forwarder_fingerprint else {
         return Err(ForwardingKeyValidationError::SubKeyUnsupportedKeyVersion(
             forwarder_fingerprint.version(),
         ));
+    };
+
+    // If the forwarder subkey is itself a forwarding key (recursive forwarding),
+    // messages were originally encrypted to the key it replaces. The forwardee
+    // has to mix in that original fingerprint into the KDF as well.
+    let replacement_fingerprint = match ecdh_kdf_type {
+        EcdhKdfType::Replaced {
+            replacement_fingerprint,
+        } => *replacement_fingerprint,
+        EcdhKdfType::Native => forwarder_fingerprint_bytes,
     };
 
     Ok(ForwardingKdfParams {
