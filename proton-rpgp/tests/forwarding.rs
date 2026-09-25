@@ -57,8 +57,10 @@ fn proxy_forward_message(
     instances: &[ForwardingInstance],
 ) -> Result<Vec<u8>, Error> {
     let pkesk = ForwardingPkesk::from_bytes(message.as_key_packets_unchecked())?;
-    let forwarded = pkesk.proxy_forward(instances)?;
-    let mut forwarded_message = forwarded.to_vec()?;
+    let mut forwarded_message = Vec::new();
+    for forwarded in pkesk.proxy_forward(instances)? {
+        forwarded_message.extend_from_slice(&forwarded.to_vec()?);
+    }
     forwarded_message.extend_from_slice(message.as_data_packet_unchecked());
     Ok(forwarded_message)
 }
@@ -803,7 +805,11 @@ pub fn forwarding_preserves_the_session_key() {
 
     let pkesk = ForwardingPkesk::from_bytes(encrypted.as_key_packets_unchecked())
         .expect("Failed to parse PKESK");
-    let forwarded = pkesk.proxy_forward(&instances).expect("Failed to forward");
+    let [forwarded] = pkesk
+        .proxy_forward(&instances)
+        .expect("Failed to forward")
+        .try_into()
+        .expect("Expected exactly one forwarded PKESK");
 
     let original_session_key = Decryptor::default()
         .with_decryption_key(&forwarder)
@@ -849,7 +855,11 @@ pub fn forwarding_full() {
 
     let pkesk = ForwardingPkesk::from_bytes(encrypted.as_key_packets_unchecked()).unwrap();
 
-    let forwarded = pkesk.proxy_forward(&instances).unwrap();
+    let [forwarded] = pkesk
+        .proxy_forward(&instances)
+        .unwrap()
+        .try_into()
+        .expect("Expected exactly one forwarded PKESK");
 
     let mut forwarded_msg = forwarded.to_vec().unwrap();
     forwarded_msg.extend_from_slice(encrypted.as_data_packet_unchecked());

@@ -24,7 +24,11 @@ impl EncryptedMessage {
                 continue;
             };
             match fpkesk.proxy_forward(instances) {
-                Ok(forwarded) => forwarded_message.extend_from_slice(&forwarded.to_vec()?),
+                Ok(forwarded) => {
+                    for pkesk in forwarded {
+                        forwarded_message.extend_from_slice(&pkesk.to_vec()?);
+                    }
+                }
                 Err(ForwardingTransform(ForwardingTransformError::NoMatchingInstance(_))) => {}
                 Err(err) => return Err(err),
             }
@@ -120,24 +124,43 @@ impl ForwardingPkesk {
             .map_err(|_| ForwardingTransformError::VersionMismatch(self.0.version()))
     }
 
-    /// Transforms this PKESK with the [`ForwardingInstance`] in `instances` that
+    /// Transforms this PKESK with every [`ForwardingInstance`] in `instances` that
     /// matches its recipient key id.
+    ///
+    /// If the PKESK key id is a wildcard it forwards with the first instance in the iterator.
+    /// Fails with [`ForwardingTransformError::NoMatchingInstance`] if no instance matches.
     pub fn proxy_forward<'a>(
         &self,
         instances: impl IntoIterator<Item = &'a ForwardingInstance>,
-    ) -> crate::Result<ForwardedPkesk> {
+    ) -> crate::Result<Vec<ForwardedPkesk>> {
         let pkesk_key_id = self.key_id()?;
-        let instance = instances
+        let forwarded = instances
             .into_iter()
-            .find(|instance| {
-                instance
-                    .forwarder_fingerprint()
-                    .key_id()
-                    .is_some_and(|key_id| key_id == pkesk_key_id)
-            })
-            .ok_or(ForwardingTransformError::NoMatchingInstance(pkesk_key_id))?;
+            .filter_map(|instance| self.proxy_forward_single(instance).transpose())
+            .collect::<crate::Result<Vec<_>>>()?;
+        if forwarded.is_empty() {
+            return Err(ForwardingTransformError::NoMatchingInstance(pkesk_key_id).into());
+        }
+        Ok(forwarded)
+    }
 
-        Ok(ForwardedPkesk(instance.transform(&self.0)?))
+    /// Transforms this PKESK with `instance` if it matches the PKESK recipient key id.
+    ///
+    /// Returns `None` if the instance does not match. A wildcard PKESK key id matches any instance.
+    pub fn proxy_forward_single(
+        &self,
+        instance: &ForwardingInstance,
+    ) -> crate::Result<Option<ForwardedPkesk>> {
+        let pkesk_key_id = self.key_id()?;
+        let matches = pkesk_key_id == KeyId::WILDCARD
+            || instance
+                .forwarder_fingerprint()
+                .key_id()
+                .is_some_and(|key_id| key_id == pkesk_key_id);
+        if !matches {
+            return Ok(None);
+        }
+        Ok(Some(ForwardedPkesk(instance.transform(&self.0)?)))
     }
 }
 
