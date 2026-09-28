@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Bump `proton-rpgp` to `0.7.0`.
+- Bump `proton-rpgp` to `0.8.0`.
 
 ## [0.14.0] - 2026-09-15
 

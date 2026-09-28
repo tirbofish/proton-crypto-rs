@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - 2026-00-00
 
+## [0.8.0] - 2026-09-28
+
+### Added
+
+- Support recursive forwarding: a forwarder key that is itself a forwardee is now chained correctly by `PrivateKey::forwarding_key_generator`/`forwarding_key_generator_with_profile`. `PublicKeySelectionExt::forwardable_key` selects a key valid for generating a forwarding key.
+- `ForwardingPkesk::proxy_forward_single` to transform a single PKESK against one `ForwardingInstance`, returning `None` if it doesn't match.
+
+### Changed
+
+- BREAKING: `ForwardingPkesk::proxy_forward` now returns `Vec<ForwardedPkesk>`, forwarding to every matching instance instead of only the first one, and matches PKESKs with a wildcard key id against any instance.
+
 ## [0.7.0] - 2026-09-22
 
 ### Added
