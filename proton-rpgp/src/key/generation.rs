@@ -5,14 +5,15 @@ use pgp::{
     packet::{self, KeyFlags, PubKeyInner, UserId},
     ser::Serialize,
     types::{
-        KeyVersion, PacketHeaderVersion, PublicParams, SecretParams, SigningKey, VerifyingKey,
+        KeyVersion, PacketHeaderVersion, PlainSecretParams, PublicParams, SecretParams, SigningKey,
+        VerifyingKey,
     },
 };
 use rand::{CryptoRng, Rng};
 
 use crate::{
     KeyGenerationError, KeyGenerationType, PacketPublicSubkeyExt, PrivateKey, Profile, UnixTime,
-    UserIdError, DEFAULT_PROFILE,
+    UserIdError, DEFAULT_PROFILE, MAX_RSA_KEY_GEN_BITS, MIN_RSA_KEY_GEN_BITS,
 };
 
 /// Internal representation of a user-id.
@@ -128,6 +129,11 @@ impl KeyGenerator {
     where
         R: Rng + CryptoRng,
     {
+        if let KeyGenerationType::RsaCustom(bits) = self.algorithm {
+            if !(MIN_RSA_KEY_GEN_BITS..=MAX_RSA_KEY_GEN_BITS).contains(&bits) {
+                return Err(KeyGenerationError::InvalidRsaBits(bits).into());
+            }
+        }
         let key_generation_options = self.algorithm.key_generation_profile(&self.profile);
         let preferred_hash = self.profile.key_hash_algorithm();
         let (primary_user_id, non_primary_user_ids) =
@@ -201,7 +207,7 @@ pub(crate) fn generate_primary_key(
     date: UnixTime,
     rng: impl Rng + CryptoRng,
 ) -> Result<(packet::SecretKey, packet::PublicKey), KeyGenerationError> {
-    let (primary_public_params, primary_secret_params) = key_type.generate(rng)?;
+    let (primary_public_params, primary_secret_params) = generate_key_params(&key_type, rng)?;
     let pub_key = PubKeyInner::new(
         key_version,
         key_type.to_alg(),
@@ -213,6 +219,26 @@ pub(crate) fn generate_primary_key(
     let primary_secret_key =
         packet::SecretKey::new(primary_pub_key.clone(), primary_secret_params)?;
     Ok((primary_secret_key, primary_pub_key))
+}
+
+/// Generates key material for the given key type.
+///
+/// RSA keys are generated through the `rsa` crate directly to support sizes above
+/// the 4096-bit generation limit of rpgp.
+pub(crate) fn generate_key_params(
+    key_type: &KeyType,
+    mut rng: impl Rng + CryptoRng,
+) -> Result<(PublicParams, SecretParams), KeyGenerationError> {
+    match key_type {
+        KeyType::Rsa(bits) => {
+            let key = rsa::RsaPrivateKey::new(&mut rng, *bits as usize)?;
+            let secret = pgp::crypto::rsa::SecretKey::from(key);
+            let public_params = PublicParams::RSA((&secret).into());
+            let secret_params = SecretParams::Plain(PlainSecretParams::RSA(secret));
+            Ok((public_params, secret_params))
+        }
+        _ => Ok(key_type.generate(rng)?),
+    }
 }
 
 /// Describes an encryption subkey to generate and bind to a primary key.
@@ -243,7 +269,7 @@ where
     P: VerifyingKey + Serialize,
     R: CryptoRng + Rng,
 {
-    let params = spec.key_type.generate(&mut rng)?;
+    let params = generate_key_params(&spec.key_type, &mut rng)?;
     sign_subkey_with_params(
         primary_secret_key,
         primary_pub_key,
@@ -337,6 +363,7 @@ mod tests {
         packet::{Packet, PacketParser, Signature, SignatureType, SignatureVersion},
         types::KeyDetails,
     };
+    use rsa::traits::PublicKeyParts;
 
     use crate::{
         AccessKeyInfo, DataEncoding, SignatureExt, HAZARD_AEAD_PROFILE,
@@ -557,5 +584,41 @@ mod tests {
             }
         }
         None
+    }
+
+    fn rsa_modulus_bits(params: &PublicParams) -> usize {
+        match params {
+            PublicParams::RSA(params) => params.key.n().bits(),
+            _ => panic!("expected RSA public params"),
+        }
+    }
+
+    fn assert_rsa_key_bits(key: &PrivateKey, expected_bits: usize) {
+        let public = &key.public.inner;
+        assert_eq!(
+            rsa_modulus_bits(public.primary_key.public_params()),
+            expected_bits
+        );
+        let [subkey] = public.public_subkeys.as_slice() else {
+            panic!("expected exactly one subkey");
+        };
+        assert_eq!(rsa_modulus_bits(subkey.key.public_params()), expected_bits);
+    }
+
+    fn generate_rsa_key(key_type: KeyGenerationType) -> crate::Result<PrivateKey> {
+        KeyGenerator::default()
+            .with_user_id("test", "test@test.test")
+            .with_key_type(key_type)
+            .at_date(UnixTime::new(1_756_196_260))
+            .generate()
+    }
+
+    #[test]
+    fn test_key_generation_rsa_custom_bits() {
+        for bits in [1023, 1024] {
+            let key = generate_rsa_key(KeyGenerationType::RsaCustom(bits)).unwrap();
+            assert_eq!(key.version(), 4);
+            assert_rsa_key_bits(&key, bits as usize);
+        }
     }
 }

@@ -13,6 +13,12 @@ use crate::{KeyDetailsConfig, Profile, PREFERRED_SYMMETRIC_KEY_ALGORITHMS};
 pub const PREFERRED_KEY_GEN_HASH_ALGORITHMS: &[HashAlgorithm] =
     &[HashAlgorithm::Sha512, HashAlgorithm::Sha256];
 
+/// The minimum RSA modulus size in bits accepted for [`KeyGenerationType::RsaCustom`].
+pub const MIN_RSA_KEY_GEN_BITS: u32 = 1023;
+
+/// The maximum RSA modulus size in bits accepted for [`KeyGenerationType::RsaCustom`].
+pub const MAX_RSA_KEY_GEN_BITS: u32 = 8192;
+
 pub const PREFERRED_KEY_GEN_COMPRESSION_ALGORITHMS: &[CompressionAlgorithm] = &[
     CompressionAlgorithm::Uncompressed,
     CompressionAlgorithm::ZLIB,
@@ -31,6 +37,13 @@ pub enum KeyGenerationType {
     /// An RSA 4096-bit v4 signing and encryption key.
     RSA,
 
+    /// An RSA v4 signing and encryption key with a custom modulus size in bits.
+    ///
+    /// HAZARD: This is indeded for testing purposes.
+    /// User [`Self::RSA`] in clients.
+    /// The size must be in [`MIN_RSA_KEY_GEN_BITS`]`..=`[`MAX_RSA_KEY_GEN_BITS`].
+    RsaCustom(u32),
+
     /// An ECC v4 signing (`EdDsaLegacy`) and encryption key (`ECDH` with `Curve25519` legacy).
     #[default]
     ECC,
@@ -43,6 +56,7 @@ impl KeyGenerationType {
     pub(crate) fn primary_key_type(self) -> KeyType {
         match self {
             KeyGenerationType::RSA => KeyType::Rsa(4096),
+            KeyGenerationType::RsaCustom(bits) => KeyType::Rsa(bits),
             KeyGenerationType::ECC => KeyType::Ed25519Legacy,
             KeyGenerationType::PQC => KeyType::MlDsa65Ed25519,
         }
@@ -51,6 +65,7 @@ impl KeyGenerationType {
     pub(crate) fn encryption_key_type(self) -> KeyType {
         match self {
             KeyGenerationType::RSA => KeyType::Rsa(4096),
+            KeyGenerationType::RsaCustom(bits) => KeyType::Rsa(bits),
             KeyGenerationType::ECC => KeyType::ECDH(ECCCurve::Curve25519Legacy),
             KeyGenerationType::PQC => KeyType::MlKem768X25519,
         }
@@ -58,7 +73,7 @@ impl KeyGenerationType {
 
     pub(crate) fn key_generation_profile(self, profile: &Profile) -> KeyGenerationProfile {
         match self {
-            KeyGenerationType::RSA | KeyGenerationType::ECC => {
+            KeyGenerationType::RSA | KeyGenerationType::RsaCustom(_) | KeyGenerationType::ECC => {
                 profile.default_key_generation_profile().build()
             }
             KeyGenerationType::PQC => profile

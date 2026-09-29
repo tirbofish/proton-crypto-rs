@@ -300,6 +300,12 @@ pub enum KeyGenerationError {
     #[error("Failed to generate key: {0}")]
     Generation(#[from] pgp::errors::Error),
 
+    #[error("Invalid RSA key size {0}: must be between {min} and {max} bits", min = crate::MIN_RSA_KEY_GEN_BITS, max = crate::MAX_RSA_KEY_GEN_BITS)]
+    InvalidRsaBits(u32),
+
+    #[error("Failed to generate RSA key: {0}")]
+    RsaGeneration(#[from] rsa::Error),
+
     #[error("Failed to self-sign key: {0}")]
     Signing(#[from] SigningError),
 
