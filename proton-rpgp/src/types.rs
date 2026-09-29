@@ -327,6 +327,10 @@ impl GenericKeyIdentifier {
             Self::Wildcard => Some(KeyId::new([0_u8; 8])),
         }
     }
+
+    pub fn is_wildcard(&self) -> bool {
+        matches!(&self, GenericKeyIdentifier::Wildcard)
+    }
 }
 
 impl PartialEq for GenericKeyIdentifier {

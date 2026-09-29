@@ -7,7 +7,7 @@ use pgp::{
     },
 };
 
-use crate::{FingerprintExt, ForwardingInstanceError, ForwardingTransformError};
+use crate::{FingerprintExt, ForwardingInstanceError, ForwardingTransformError, PkeskExt};
 
 /// Everything a forwarding proxy needs to re-target a message from one
 /// forwarder subkey to the matching forwardee subkey.
@@ -66,7 +66,37 @@ impl ForwardingInstance {
         let proxy_parameter = ForwardingProxyParameter::from(*self.proxy_parameter.as_ref());
         pkesk
             .forwarding_transform(&self.key_details, proxy_parameter)
+            .map(|forwarded| self.override_wildcard_key_id(forwarded))
             .map_err(ForwardingTransformError::ProxyTransform)
+    }
+
+    fn override_wildcard_key_id(
+        &self,
+        pkesk: PublicKeyEncryptedSessionKey,
+    ) -> PublicKeyEncryptedSessionKey {
+        if !pkesk
+            .generic_identifier()
+            .is_some_and(|ident| ident.is_wildcard())
+        {
+            return pkesk;
+        }
+        match (pkesk, self.forwardee_fingerprint().key_id()) {
+            (
+                PublicKeyEncryptedSessionKey::V3 {
+                    packet_header,
+                    pk_algo,
+                    values,
+                    ..
+                },
+                Some(id),
+            ) => PublicKeyEncryptedSessionKey::V3 {
+                packet_header,
+                id,
+                pk_algo,
+                values,
+            },
+            (pkesk, _) => pkesk,
+        }
     }
 }
 

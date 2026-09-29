@@ -6,13 +6,13 @@ use pgp::{
     packet::{Packet, PacketParser, PublicKeyEncryptedSessionKey, Signature, SignatureType},
     ser::Serialize,
     types::{
-        EcdhKdfType, EcdhPublicParams, Fingerprint, ForwardingProxyParameter, KeyDetails,
+        EcdhKdfType, EcdhPublicParams, Fingerprint, ForwardingProxyParameter, KeyDetails, KeyId,
         KeyVersion, PublicParams,
     },
 };
 use proton_rpgp::{
     AccessKeyInfo, AsPublicKeyRef, DataEncoding, Decryptor, EncryptedMessage, Encryptor, Error,
-    ForwardingInstance, ForwardingInstanceError, ForwardingKeyGenerationError,
+    FingerprintExt, ForwardingInstance, ForwardingInstanceError, ForwardingKeyGenerationError,
     ForwardingKeyValidationError, ForwardingPkesk, ForwardingTransformError, KeyGenerationType,
     KeyGenerator, PrivateKey, Profile, UnixTime,
 };
@@ -1192,4 +1192,65 @@ pub fn forwarding_recursive() {
             DataEncoding::Unarmored,
         );
     assert!(result.is_err());
+}
+
+#[test]
+#[allow(clippy::missing_panics_doc)]
+pub fn forwarding_wildcard_pkesk_gets_forwardee_key_id() {
+    let date = test_date();
+    let forwarder = import_unlocked(TEST_KEY_V4);
+    let encrypted = encrypt_to(&forwarder, b"hello wildcard");
+
+    let (forwardee, instances) = forwarder
+        .forwarding_key_generator()
+        .with_user_id("forwardee", "forwardee@test.test")
+        .at_date(date)
+        .generate()
+        .expect("Generation should succeed");
+
+    let pkesk = ForwardingPkesk::from_bytes(encrypted.as_key_packets_unchecked())
+        .expect("Failed to parse PKESK");
+    let PublicKeyEncryptedSessionKey::V3 {
+        packet_header,
+        pk_algo,
+        values,
+        ..
+    } = PublicKeyEncryptedSessionKey::from(pkesk)
+    else {
+        panic!("Expected a v3 PKESK");
+    };
+    let pkesk = ForwardingPkesk::try_from(PublicKeyEncryptedSessionKey::V3 {
+        packet_header,
+        id: KeyId::WILDCARD,
+        pk_algo,
+        values,
+    })
+    .expect("Wildcard PKESK must be valid for forwarding");
+
+    let [forwarded] = pkesk
+        .proxy_forward(&instances)
+        .expect("Failed to forward")
+        .try_into()
+        .expect("Expected exactly one forwarded PKESK");
+
+    let forwardee_key_id = instances
+        .first()
+        .expect("Missing forwarding instance")
+        .forwardee_fingerprint()
+        .key_id()
+        .expect("Missing forwardee key id");
+    assert_eq!(
+        forwarded.pkesk().id().expect("Missing key id"),
+        &forwardee_key_id
+    );
+
+    let mut forwarded_msg = forwarded.to_vec().expect("Failed to encode PKESK");
+    forwarded_msg.extend_from_slice(encrypted.as_data_packet_unchecked());
+    let decrypted = Decryptor::default()
+        .allow_forwarding_decryption(true)
+        .with_decryption_key(&forwardee)
+        .at_date(date.into())
+        .decrypt(forwarded_msg, DataEncoding::Unarmored)
+        .expect("Forwardee failed to decrypt");
+    assert_eq!(decrypted.data, b"hello wildcard");
 }

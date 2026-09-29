@@ -126,9 +126,6 @@ impl ForwardingPkesk {
 
     /// Transforms this PKESK with every [`ForwardingInstance`] in `instances` that
     /// matches its recipient key id.
-    ///
-    /// If the PKESK key id is a wildcard it forwards with the first instance in the iterator.
-    /// Fails with [`ForwardingTransformError::NoMatchingInstance`] if no instance matches.
     pub fn proxy_forward<'a>(
         &self,
         instances: impl IntoIterator<Item = &'a ForwardingInstance>,

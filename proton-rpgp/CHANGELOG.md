@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - BREAKING: `ForwardingPkesk::proxy_forward` now returns `Vec<ForwardedPkesk>`, forwarding to every matching instance instead of only the first one, and matches PKESKs with a wildcard key id against any instance.
+- Forwarded PKESKs now always carry the forwardee's key id, even when the original PKESK used a wildcard key id, matching go-encryption-service and enabling chained forwarding.
 
 ## [0.7.0] - 2026-09-22
 
