@@ -39,8 +39,8 @@ pub enum KeyGenerationType {
 
     /// An RSA v4 signing and encryption key with a custom modulus size in bits.
     ///
-    /// HAZARD: This is indeded for testing purposes.
-    /// User [`Self::RSA`] in clients.
+    /// HAZARD: This is intended for testing purposes.
+    /// Use [`Self::RSA`] in clients.
     /// The size must be in [`MIN_RSA_KEY_GEN_BITS`]`..=`[`MAX_RSA_KEY_GEN_BITS`].
     RsaCustom(u32),
 
