@@ -13,9 +13,11 @@ use crate::{KeyDetailsConfig, Profile, PREFERRED_SYMMETRIC_KEY_ALGORITHMS};
 pub const PREFERRED_KEY_GEN_HASH_ALGORITHMS: &[HashAlgorithm] =
     &[HashAlgorithm::Sha512, HashAlgorithm::Sha256];
 
+#[cfg(feature = "hazmat-key-gen")]
 /// The minimum RSA modulus size in bits accepted for [`KeyGenerationType::RsaCustom`].
 pub const MIN_RSA_KEY_GEN_BITS: u32 = 1023;
 
+#[cfg(feature = "hazmat-key-gen")]
 /// The maximum RSA modulus size in bits accepted for [`KeyGenerationType::RsaCustom`].
 pub const MAX_RSA_KEY_GEN_BITS: u32 = 8192;
 
@@ -42,6 +44,8 @@ pub enum KeyGenerationType {
     /// HAZARD: This is intended for testing purposes.
     /// Use [`Self::RSA`] in clients.
     /// The size must be in [`MIN_RSA_KEY_GEN_BITS`]`..=`[`MAX_RSA_KEY_GEN_BITS`].
+    /// Requires the `hazmat-key-gen` feature.
+    #[cfg(feature = "hazmat-key-gen")]
     RsaCustom(u32),
 
     /// An ECC v4 signing (`EdDsaLegacy`) and encryption key (`ECDH` with `Curve25519` legacy).
@@ -56,6 +60,7 @@ impl KeyGenerationType {
     pub(crate) fn primary_key_type(self) -> KeyType {
         match self {
             KeyGenerationType::RSA => KeyType::Rsa(4096),
+            #[cfg(feature = "hazmat-key-gen")]
             KeyGenerationType::RsaCustom(bits) => KeyType::Rsa(bits),
             KeyGenerationType::ECC => KeyType::Ed25519Legacy,
             KeyGenerationType::PQC => KeyType::MlDsa65Ed25519,
@@ -65,6 +70,7 @@ impl KeyGenerationType {
     pub(crate) fn encryption_key_type(self) -> KeyType {
         match self {
             KeyGenerationType::RSA => KeyType::Rsa(4096),
+            #[cfg(feature = "hazmat-key-gen")]
             KeyGenerationType::RsaCustom(bits) => KeyType::Rsa(bits),
             KeyGenerationType::ECC => KeyType::ECDH(ECCCurve::Curve25519Legacy),
             KeyGenerationType::PQC => KeyType::MlKem768X25519,
@@ -73,9 +79,11 @@ impl KeyGenerationType {
 
     pub(crate) fn key_generation_profile(self, profile: &Profile) -> KeyGenerationProfile {
         match self {
-            KeyGenerationType::RSA | KeyGenerationType::RsaCustom(_) | KeyGenerationType::ECC => {
+            KeyGenerationType::RSA | KeyGenerationType::ECC => {
                 profile.default_key_generation_profile().build()
             }
+            #[cfg(feature = "hazmat-key-gen")]
+            KeyGenerationType::RsaCustom(_) => profile.default_key_generation_profile().build(),
             KeyGenerationType::PQC => profile
                 .default_key_generation_profile()
                 .key_version(KeyVersion::V6)

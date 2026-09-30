@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `KeyGenerationType::RsaCustom(bits)` to generate RSA keys with a custom modulus size between `MIN_RSA_KEY_GEN_BITS` (1023) and `MAX_RSA_KEY_GEN_BITS` (8192). Out-of-range sizes fail with `KeyGenerationError::InvalidRsaBits`.
+- `KeyGenerationType::RsaCustom(bits)` to generate RSA keys with a custom modulus size between `MIN_RSA_KEY_GEN_BITS` (1023) and `MAX_RSA_KEY_GEN_BITS` (8192). Out-of-range sizes fail with `KeyGenerationError::InvalidRsaBits`. Requires the new `hazmat-key-gen` feature (intended for testing only).
 
 ## [0.8.0] - 2026-09-28
 

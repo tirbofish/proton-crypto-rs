@@ -26,6 +26,8 @@ pgp = { version = "0.20.0", default-features = false, features = ["draft-pqc", "
 
 [features]
 default = []
+# Enables hazardous key generation options intended for testing only (e.g., custom RSA key sizes).
+hazmat-key-gen = []
 
 [lints]
 workspace = true

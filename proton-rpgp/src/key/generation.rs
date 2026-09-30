@@ -5,16 +5,17 @@ use pgp::{
     packet::{self, KeyFlags, PubKeyInner, UserId},
     ser::Serialize,
     types::{
-        KeyVersion, PacketHeaderVersion, PlainSecretParams, PublicParams, SecretParams, SigningKey,
-        VerifyingKey,
+        KeyVersion, PacketHeaderVersion, PublicParams, SecretParams, SigningKey, VerifyingKey,
     },
 };
 use rand::{CryptoRng, Rng};
 
 use crate::{
     KeyGenerationError, KeyGenerationType, PacketPublicSubkeyExt, PrivateKey, Profile, UnixTime,
-    UserIdError, DEFAULT_PROFILE, MAX_RSA_KEY_GEN_BITS, MIN_RSA_KEY_GEN_BITS,
+    UserIdError, DEFAULT_PROFILE,
 };
+#[cfg(feature = "hazmat-key-gen")]
+use crate::{MAX_RSA_KEY_GEN_BITS, MIN_RSA_KEY_GEN_BITS};
 
 /// Internal representation of a user-id.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -129,6 +130,7 @@ impl KeyGenerator {
     where
         R: Rng + CryptoRng,
     {
+        #[cfg(feature = "hazmat-key-gen")]
         if let KeyGenerationType::RsaCustom(bits) = self.algorithm {
             if !(MIN_RSA_KEY_GEN_BITS..=MAX_RSA_KEY_GEN_BITS).contains(&bits) {
                 return Err(KeyGenerationError::InvalidRsaBits(bits).into());
@@ -223,18 +225,20 @@ pub(crate) fn generate_primary_key(
 
 /// Generates key material for the given key type.
 ///
-/// RSA keys are generated through the `rsa` crate directly to support sizes above
-/// the 4096-bit generation limit of rpgp.
+/// With the `hazmat-key-gen` feature, RSA keys are generated through the `rsa` crate
+/// directly to support sizes above the 4096-bit generation limit of rpgp.
 pub(crate) fn generate_key_params(
     key_type: &KeyType,
-    mut rng: impl Rng + CryptoRng,
+    rng: impl Rng + CryptoRng,
 ) -> Result<(PublicParams, SecretParams), KeyGenerationError> {
     match key_type {
+        #[cfg(feature = "hazmat-key-gen")]
         KeyType::Rsa(bits) => {
+            let mut rng = rng;
             let key = rsa::RsaPrivateKey::new(&mut rng, *bits as usize)?;
             let secret = pgp::crypto::rsa::SecretKey::from(key);
             let public_params = PublicParams::RSA((&secret).into());
-            let secret_params = SecretParams::Plain(PlainSecretParams::RSA(secret));
+            let secret_params = SecretParams::Plain(pgp::types::PlainSecretParams::RSA(secret));
             Ok((public_params, secret_params))
         }
         _ => Ok(key_type.generate(rng)?),
@@ -363,7 +367,6 @@ mod tests {
         packet::{Packet, PacketParser, Signature, SignatureType, SignatureVersion},
         types::KeyDetails,
     };
-    use rsa::traits::PublicKeyParts;
 
     use crate::{
         AccessKeyInfo, DataEncoding, SignatureExt, HAZARD_AEAD_PROFILE,
@@ -586,39 +589,46 @@ mod tests {
         None
     }
 
-    fn rsa_modulus_bits(params: &PublicParams) -> usize {
-        match params {
-            PublicParams::RSA(params) => params.key.n().bits(),
-            _ => panic!("expected RSA public params"),
+    #[cfg(feature = "hazmat-key-gen")]
+    mod hazmat_key_gen {
+        use rsa::traits::PublicKeyParts;
+
+        use super::*;
+
+        fn rsa_modulus_bits(params: &PublicParams) -> usize {
+            match params {
+                PublicParams::RSA(params) => params.key.n().bits(),
+                _ => panic!("expected RSA public params"),
+            }
         }
-    }
 
-    fn assert_rsa_key_bits(key: &PrivateKey, expected_bits: usize) {
-        let public = &key.public.inner;
-        assert_eq!(
-            rsa_modulus_bits(public.primary_key.public_params()),
-            expected_bits
-        );
-        let [subkey] = public.public_subkeys.as_slice() else {
-            panic!("expected exactly one subkey");
-        };
-        assert_eq!(rsa_modulus_bits(subkey.key.public_params()), expected_bits);
-    }
+        fn assert_rsa_key_bits(key: &PrivateKey, expected_bits: usize) {
+            let public = &key.public.inner;
+            assert_eq!(
+                rsa_modulus_bits(public.primary_key.public_params()),
+                expected_bits
+            );
+            let [subkey] = public.public_subkeys.as_slice() else {
+                panic!("expected exactly one subkey");
+            };
+            assert_eq!(rsa_modulus_bits(subkey.key.public_params()), expected_bits);
+        }
 
-    fn generate_rsa_key(key_type: KeyGenerationType) -> crate::Result<PrivateKey> {
-        KeyGenerator::default()
-            .with_user_id("test", "test@test.test")
-            .with_key_type(key_type)
-            .at_date(UnixTime::new(1_756_196_260))
-            .generate()
-    }
+        fn generate_rsa_key(key_type: KeyGenerationType) -> crate::Result<PrivateKey> {
+            KeyGenerator::default()
+                .with_user_id("test", "test@test.test")
+                .with_key_type(key_type)
+                .at_date(UnixTime::new(1_756_196_260))
+                .generate()
+        }
 
-    #[test]
-    fn test_key_generation_rsa_custom_bits() {
-        for bits in [1023, 1024] {
-            let key = generate_rsa_key(KeyGenerationType::RsaCustom(bits)).unwrap();
-            assert_eq!(key.version(), 4);
-            assert_rsa_key_bits(&key, bits as usize);
+        #[test]
+        fn test_key_generation_rsa_custom_bits() {
+            for bits in [1023, 1024] {
+                let key = generate_rsa_key(KeyGenerationType::RsaCustom(bits)).unwrap();
+                assert_eq!(key.version(), 4);
+                assert_rsa_key_bits(&key, bits as usize);
+            }
         }
     }
 }
