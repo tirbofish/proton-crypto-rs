@@ -1,5 +1,9 @@
 //! Provides cryptography domains and utility for Proton account.
 
+// The `facet::Facet` derive generates `unsafe` code, which falsely triggers this lint
+// on types that also derive `serde::Deserialize`.
+#![cfg_attr(feature = "facet", allow(clippy::unsafe_derive_deserialize))]
+
 mod constants;
 use constants::{
     FLAG_EMAIL_NO_ENCRYPT, FLAG_EMAIL_NO_SIGN, FLAG_NOT_COMPROMISED, FLAG_NOT_OBSOLETE,

@@ -1,5 +1,9 @@
 //! Implements core cryptography utility.
 
+// The `facet::Facet` derive generates `unsafe` code, which falsely triggers this lint
+// on types that also derive `serde::Deserialize`.
+#![cfg_attr(feature = "facet", allow(clippy::unsafe_derive_deserialize))]
+
 pub type Error = CryptoError;
 pub type Result<T> = std::result::Result<T, Error>;
 

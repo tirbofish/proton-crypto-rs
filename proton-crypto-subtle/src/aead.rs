@@ -93,10 +93,13 @@ impl<'a> AesGcmCiphertext<'a> {
     /// This non-standard IV length for compatibility with existing legacy systems.
     #[cfg(feature = "legacy")]
     pub fn decode_legacy(ciphertext: &'a [u8]) -> SubtleResult<Self> {
-        Self::new(
-            &ciphertext[..AES_GCM_256_IV_SIZE_LEGACY],
-            &ciphertext[AES_GCM_256_IV_SIZE_LEGACY..],
-        )
+        let iv = ciphertext
+            .get(..AES_GCM_256_IV_SIZE_LEGACY)
+            .ok_or(SubtleError::InvalidIvLength)?;
+        let ct = ciphertext
+            .get(AES_GCM_256_IV_SIZE_LEGACY..)
+            .ok_or(SubtleError::InvalidCiphertext)?;
+        Self::new(iv, ct)
     }
 
     #[cfg(feature = "legacy")]
@@ -237,7 +240,7 @@ impl AesGcmKey {
 
     /// Encrypts the given data using the key and an optional context in legacy mode with 16 byte iv.
     ///
-    /// **Use this function only when necessary for backwards compatibility.**  
+    /// **Use this function only when necessary for backwards compatibility.**\
     /// For all other cases, prefer using [`Self::encrypt`].
     ///
     /// This method generates the 16 byte IV with a cryptographically secure random number generator.
@@ -258,7 +261,7 @@ impl AesGcmKey {
         &self,
         data: impl AsRef<[u8]>,
         context: Option<&str>,
-    ) -> SubtleResult<AesGcmCiphertext> {
+    ) -> SubtleResult<AesGcmCiphertext<'_>> {
         let mut rng = rand::thread_rng();
         let cipher = Aes256GcmIv16::new(&self.0);
         let nonce = Aes256GcmIv16::generate_nonce(&mut rng);
@@ -270,7 +273,7 @@ impl AesGcmKey {
     ///
     /// Assumes that the ciphertext was encrypted with a 16 byte iv.
     ///
-    /// **Use this function only when necessary for backwards compatibility.**  
+    /// **Use this function only when necessary for backwards compatibility.**\
     /// For all other cases, prefer using [`Self::decrypt`].
     ///
     /// # Examples
