@@ -1984,3 +1984,18 @@ pub fn encrypt_sign_brainpool_p256_is_unsupported() {
         )))
     ));
 }
+
+#[test]
+#[allow(clippy::missing_panics_doc)]
+pub fn encrypt_message_v4_key_with_malformed_mpi_subkey() {
+    const PUBLIC_KEY: &str =
+        include_str!("../test-data/keys/public_key_v4_mpi_malformed_subkey.asc");
+    let input_data = b"hello world";
+    let public_key = PublicKey::import(PUBLIC_KEY.as_bytes(), DataEncoding::Armored)
+        .expect("Failed to import key");
+
+    Encryptor::default()
+        .with_encryption_key(&public_key)
+        .encrypt(input_data)
+        .expect("Failed to encrypt");
+}
