@@ -7,7 +7,7 @@ license-file = "LICENSE"
 authors.workspace = true
 
 [dependencies]
-pgp = { version = "0.20.0", default-features = false, features = ["draft-pqc", "malformed-artifact-compat", "draft-wussler-openpgp-forwarding", "large-rsa"] }
+pgp = { version = "0.21.0", default-features = false, features = ["pqc", "malformed-artifact-compat", "draft-wussler-openpgp-forwarding", "large-rsa"] }
 thiserror = { workspace = true }
 rsa = "0.9.10"
 rand = { workspace = true }
@@ -22,7 +22,7 @@ nom = "8.0"
 x25519-dalek = { version = "2.0.1", default-features = false }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-pgp = { version = "0.20.0", default-features = false, features = ["draft-pqc", "malformed-artifact-compat", "draft-wussler-openpgp-forwarding", "large-rsa", "wasm"] }
+pgp = { version = "0.21.0", default-features = false, features = ["pqc", "malformed-artifact-compat", "draft-wussler-openpgp-forwarding", "large-rsa", "wasm"] }
 
 [features]
 default = []
