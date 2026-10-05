@@ -7,9 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased] - 2025-00-00
 
+## [0.14.1] - 2026-10-05
+
 ### Changed
 
-- Bump `proton-rpgp` to `0.8.0`.
+- Bump `proton-rpgp` to `0.9.0`.
+- Bump `gopenpgp-sys` to `0.3.9`.
+- Bump `proton-srp` to `0.8.4`.
 
 ## [0.14.0] - 2026-09-15
 
